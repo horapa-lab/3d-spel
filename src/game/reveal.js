@@ -102,7 +102,9 @@ export class Reveal {
     this.rimLight.color.set(rc.hex);
     this.resize(game.width, game.height);
     game.ui.showReveal(result, w);
-    this.autoT = result.rarity <= 1 ? 2.6 : 4.2;
+    // routine results get a short look, rarer guns a longer celebration
+    this.quick = !!result.quick;
+    this.autoT = this.quick ? 1.3 : [2.4, 2.8, 3.4, 4.2, 5.2, 6.2, 7.0][result.rarity];
   }
 
   resize(w, h) {
@@ -115,7 +117,7 @@ export class Reveal {
   }
 
   dismiss() {
-    if (!this.active || this.closing || this.t < 0.45) return false;
+    if (!this.active || this.closing || this.t < (this.quick ? 0.25 : 0.45)) return false;
     this.closing = true;
     this.closeT = 0;
     this.game.ui.hideReveal();
@@ -145,9 +147,9 @@ export class Reveal {
       this.holder.position.y = 0.1 + Math.sin(this.t * 2) * 0.08;
       if (this.t > this.autoT && this.game.settings.autoContinue !== false) this.dismiss();
     }
-    this.dim.material.uniforms.uA.value = alpha * 0.88;
-    this.raysMat.uniforms.uA.value = alpha;
-    this.holder.scale.setScalar(Math.max(0.001, scale * this.baseScale * this.fit));
+    this.dim.material.uniforms.uA.value = alpha * (this.quick ? 0.45 : 0.88);
+    this.raysMat.uniforms.uA.value = alpha * (this.quick ? 0.6 : 1);
+    this.holder.scale.setScalar(Math.max(0.001, scale * this.baseScale * this.fit * (this.quick ? 0.75 : 1)));
     this.holder.rotation.y = Math.sin(this.t * 1.3) * 0.55;
     this.holder.rotation.x = Math.sin(this.t * 0.9) * 0.12;
     if (this.model && this.model.spinner) this.model.spinner.rotation.z += dt * 12;

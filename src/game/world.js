@@ -78,16 +78,24 @@ export class World {
     this.sun.target.position.set(0, 0, -14);
     this.sun.castShadow = true;
     const cam = this.sun.shadow.camera;
-    cam.left = -30;
-    cam.right = 30;
-    cam.top = 46;
-    cam.bottom = -46;
+    cam.left = -34;
+    cam.right = 34;
+    cam.top = 34;
+    cam.bottom = -34;
     cam.near = 5;
     cam.far = 120;
     this.sun.shadow.bias = -0.0006;
     this.sun.shadow.normalBias = 0.03;
     this.sun.shadow.mapSize.set(2048, 2048);
     this.scene.add(this.sun, this.sun.target);
+  }
+
+  /** Keep the shadow frustum centered on what the camera looks at. */
+  followShadow(x, z) {
+    const tx = Math.round(x);
+    const tz = Math.round(z);
+    this.sun.target.position.set(tx, 0, tz);
+    this.sun.position.set(tx - 16, 40, tz + 26);
   }
 
   setShadowQuality(q) {
@@ -210,33 +218,39 @@ export class World {
 
   // ---------------------------------------------------------------- gun decks
   buildDecks() {
+    // flat wooden decks the player can walk on, between the inner and outer gun rows
     const k = new Kit();
-    const planks = [0xa8703e, 0x9a6536, 0xb57a45];
+    const planks = [0xc98a4e, 0xb97b43, 0xd6975a];
+    const x0 = L.DECK.minX - 0.4;
+    const x1 = L.DECK.maxX + 0.25;
+    const w = x1 - x0;
     for (const side of [-1, 1]) {
-      // inner wooden deck
+      const cx = side * (x0 + w / 2);
       let n = 0;
-      for (let z = L.DECK_Z0; z > L.DECK_Z1; z -= 0.5) {
-        k.box(2.9, 0.12, 0.47, planks[n++ % 3], side * L.INNER_X, L.INNER_Y - 0.06, z - 0.25);
+      for (let z = L.DECK_Z0; z > L.DECK_Z1 - 0.3; z -= 0.62) {
+        k.box(w, 0.14, 0.58, planks[n++ % 3], cx, 0.07, z - 0.31);
       }
-      const len = L.DECK_Z0 - L.DECK_Z1;
-      const mid = (L.DECK_Z0 + L.DECK_Z1) / 2;
-      k.box(2.8, L.INNER_Y - 0.12, len, 0x6e4526, side * L.INNER_X, (L.INNER_Y - 0.12) / 2, mid);
-      for (let z = L.DECK_Z0 - 0.3; z > L.DECK_Z1; z -= 2.4) {
-        k.box(0.2, L.INNER_Y - 0.1, 0.2, 0x4a2e19, side * (L.INNER_X + 1.45), (L.INNER_Y - 0.1) / 2, z);
+      // side beams + nails line
+      const len = L.DECK_Z0 - L.DECK_Z1 + 0.3;
+      const mid = (L.DECK_Z0 + L.DECK_Z1 - 0.3) / 2;
+      k.box(0.3, 0.2, len, 0x7a4a26, side * (x1 + 0.1), 0.1, mid);
+      // railing on the outer edge
+      for (let z = L.DECK_Z0 - 0.2; z > L.DECK_Z1; z -= 2.2) {
+        k.rbox(0.22, 1.1, 0.22, 0.05, 0x8a5a30, side * (x1 + 0.1), 0.6, z);
       }
-      // outer HESCO blast wall blocks
-      for (let z = L.DECK_Z0 - 0.72; z > L.DECK_Z1; z -= 1.46) {
-        const x = side * L.OUTER_X;
-        k.rbox(2.9, L.OUTER_Y, 1.42, 0.06, 0xcdb582, x, L.OUTER_Y / 2, z);
-        // wire mesh
-        for (const yy of [0.4, 0.8, 1.2]) k.box(2.94, 0.03, 1.46, 0x7c7466, x, yy, z);
-        for (const xx of [-1.45, -0.72, 0, 0.72, 1.45]) k.box(0.03, L.OUTER_Y + 0.02, 1.46, 0x7c7466, x + xx, L.OUTER_Y / 2, z);
-        k.box(2.94, 0.06, 0.04, 0x7c7466, x, L.OUTER_Y, z + 0.71);
+      k.rbox(0.18, 0.16, len, 0.06, 0xa86c38, side * (x1 + 0.1), 1.08, mid);
+      k.rbox(0.14, 0.12, len, 0.05, 0xa86c38, side * (x1 + 0.1), 0.62, mid);
+      // walkway stripe (painted path between the gun rows)
+      for (let z = L.DECK_Z0 - 1; z > L.DECK_Z1 + 0.5; z -= 1.6) {
+        k.box(0.18, 0.02, 0.8, 0xf4e3c4, side * 9.35, 0.15, z);
       }
     }
     const decks = k.build();
     decks.traverse((o) => {
-      if (o.isMesh) o.receiveShadow = true;
+      if (o.isMesh) {
+        o.receiveShadow = true;
+        o.castShadow = false;
+      }
     });
     this.scene.add(decks);
   }
@@ -247,18 +261,14 @@ export class World {
     const items = [];
     const rnd = mulberry32(5);
     for (const side of [-1, 1]) {
-      for (let layer = 0; layer < 2; layer++) {
-        for (let z = L.DECK_Z0 - 0.5 - layer * 0.5; z > L.DECK_Z1 + 0.3; z -= 1.0) {
-          items.push({ x: side * 5.75, y: layer * 0.34, z, ry: Math.PI / 2 + (rnd() - 0.5) * 0.12 });
+      for (let layer = 0; layer < 3; layer++) {
+        for (let z = L.DECK_Z0 - 0.5 - (layer % 2) * 0.5; z > L.DECK_Z1 + 0.3; z -= 1.0) {
+          items.push({ x: side * (5.6 + (layer === 2 ? 0.08 : 0)), y: layer * 0.33, z, ry: Math.PI / 2 + (rnd() - 0.5) * 0.12, s: layer === 2 ? 0.92 : 1 });
         }
-      }
-      // a few on top of the wooden deck edge (lip)
-      for (let z = L.DECK_Z0 - 1; z > L.DECK_Z1 + 0.5; z -= 1.0) {
-        items.push({ x: side * 6.05, y: 0.68, z, ry: Math.PI / 2 + (rnd() - 0.5) * 0.12, s: 0.9 });
       }
     }
     // plaza corner piles
-    for (const [px, pz] of [[-8.2, 5.2], [8.2, 5.2], [-9.4, 14.8], [9.4, 14.8]]) {
+    for (const [px, pz] of [[-11.2, 5.6], [11.2, 5.6], [-11.6, 16.6], [11.6, 16.6]]) {
       for (let i = 0; i < 5; i++) {
         items.push({ x: px + (i % 3) * 0.9 - 0.9, y: Math.floor(i / 3) * 0.34, z: pz + (rnd() - 0.5) * 0.2, ry: (rnd() - 0.5) * 0.3 });
       }
@@ -269,12 +279,12 @@ export class World {
     const q = new THREE.Quaternion();
     const e = new THREE.Euler();
     const c = new THREE.Color();
-    const tones = [0xd9bd86, 0xcfae72, 0xe3c996, 0xc4a36a];
+    const tones = [0xe0c28c, 0xd4b47a, 0xead09e, 0xcaa970];
     items.forEach((it, i) => {
       e.set((rnd() - 0.5) * 0.08, it.ry, (rnd() - 0.5) * 0.08);
       q.setFromEuler(e);
-      const s = it.s || 1;
-      m.compose(new THREE.Vector3(it.x, it.y, it.z), q, new THREE.Vector3(s, s, s));
+      const sc = it.s || 1;
+      m.compose(new THREE.Vector3(it.x, it.y, it.z), q, new THREE.Vector3(sc, sc, sc));
       mesh.setMatrixAt(i, m);
       c.set(tones[Math.floor(rnd() * tones.length)]);
       mesh.setColorAt(i, c);
@@ -297,7 +307,7 @@ export class World {
       q.setFromEuler(e);
       m.compose(new THREE.Vector3(x, 0, z), q, new THREE.Vector3(1, 1, 1));
       bm.setMatrixAt(i, m);
-      c.set(0xc9ccd2).multiplyScalar(0.9 + rnd() * 0.15);
+      c.set(0xd3d6dc).multiplyScalar(0.9 + rnd() * 0.15);
       bm.setColorAt(i, c);
     });
     bm.castShadow = true;
@@ -350,31 +360,48 @@ export class World {
   // ---------------------------------------------------------------- plaza
   buildPlaza() {
     const k = new Kit();
-    // concrete base slab + tiles
-    k.box(19.4, 0.1, 11.6, 0xd6cfbf, 0, -0.03, 10.6);
-    for (let x = -9; x <= 9; x += 3) k.box(0.05, 0.02, 11.4, 0xbdb4a2, x, 0.025, 10.6);
-    for (let z = 5.2; z <= 16; z += 3) k.box(19.2, 0.02, 0.05, 0xbdb4a2, 0, 0.025, z);
-    // hazard stripe at the front edge
-    for (let i = 0; i < 24; i++) {
-      k.box(0.8, 0.03, 0.4, i % 2 ? 0xffc62e : 0x2a2a2a, -9.3 + i * 0.81, 0.03, 4.95, { ry: 0 });
+    const P = L.PLAZA;
+    const w = P.maxX - P.minX + 0.4;
+    const d = P.maxZ - P.minZ + 0.8;
+    const cz = (P.maxZ + P.minZ) / 2 + 0.2;
+    // tiled base slab (like the reference's beige tiles)
+    k.box(w, 0.12, d, 0xe9dcc2, 0, 0.0, cz);
+    const tiles = [0xf2e6cf, 0xe6d6b8];
+    let n = 0;
+    for (let x = P.minX + 0.05; x < P.maxX; x += 1.6) {
+      for (let z = P.minZ - 0.2; z < P.maxZ + 0.2; z += 1.6) {
+        k.box(1.52, 0.05, 1.52, tiles[(n++ + Math.floor(z)) % 2], x + 0.75, 0.07, z + 0.75);
+      }
     }
-    // props
-    decoBarrel(k, -9.0, 7.0, 0xe53935);
-    decoBarrel(k, -8.9, 8.1, 0x3fa9ff);
-    decoBarrel(k, 9.1, 6.9, 0xffc62e);
-    decoCrate(k, 9.0, 8.3, 0.9, 0.3);
-    decoCrate(k, 8.8, 9.3, 0.6, -0.2);
-    decoCrate(k, -9.1, 15.2, 0.8, 0.5);
-    decoTire(k, 9.3, 15.6);
-    decoTire(k, 9.3, 15.6 + 0.001);
-    decoLamp(k, -9.8, 11.5, 0xfff1b0);
-    decoLamp(k, 9.8, 11.5, 0xfff1b0);
+    // hazard stripe at the front edge
+    for (let i = 0; i < 31; i++) {
+      k.box(0.8, 0.03, 0.42, i % 2 ? 0xffc62e : 0x33303a, P.minX + 0.4 + i * 0.81, 0.1, P.minZ - 0.1);
+    }
+    // props around the edges
+    decoBarrel(k, -11.6, 7.6, 0xe53935);
+    decoBarrel(k, -11.5, 8.7, 0x3fa9ff);
+    decoBarrel(k, 11.7, 7.4, 0xffc62e);
+    decoCrate(k, 11.5, 8.9, 0.9, 0.3);
+    decoCrate(k, 11.3, 10.0, 0.6, -0.2);
+    decoCrate(k, -11.5, 15.4, 0.8, 0.5);
+    decoTire(k, 11.6, 14.6);
+    decoLamp(k, -12.5, 11.5, 0xfff1b0);
+    decoLamp(k, 12.5, 11.5, 0xfff1b0);
     // flag pole
-    k.cyl(0.07, 5.5, 0xc0c6cf, -8.4, 2.75, 13.4, { axis: 'y', m: 'metal' });
-    k.sph(0.12, 0xffc62e, -8.4, 5.55, 13.4, { m: 'metal' });
+    k.cyl(0.07, 5.5, 0xc0c6cf, -10.4, 2.75, 14.2, { axis: 'y', m: 'metal' });
+    k.sph(0.12, 0xffc62e, -10.4, 5.55, 14.2, { m: 'metal' });
+    // back fence
+    for (let x = P.minX; x <= P.maxX + 0.01; x += 2.08) {
+      k.rbox(0.24, 1.0, 0.24, 0.05, 0x8a5a30, x, 0.55, P.maxZ + 0.55);
+    }
+    k.rbox(w, 0.16, 0.16, 0.06, 0xa86c38, 0, 0.95, P.maxZ + 0.55);
+    k.rbox(w, 0.12, 0.12, 0.05, 0xa86c38, 0, 0.55, P.maxZ + 0.55);
     const base = k.build();
     base.traverse((o) => {
-      if (o.isMesh) o.receiveShadow = true;
+      if (o.isMesh) {
+        o.receiveShadow = true;
+        o.castShadow = false;
+      }
     });
     this.scene.add(base);
 
@@ -397,7 +424,7 @@ export class World {
     const ft = new THREE.CanvasTexture(fc);
     ft.colorSpace = THREE.SRGBColorSpace;
     this.flag = new THREE.Mesh(flagGeo, new THREE.MeshLambertMaterial({ map: ft, side: THREE.DoubleSide }));
-    this.flag.position.set(-8.4 + 1.1, 4.8, 13.4);
+    this.flag.position.set(-10.4 + 1.1, 4.8, 14.2);
     this.flag.castShadow = true;
     this.flagBase = flagGeo.attributes.position.array.slice();
     this.scene.add(this.flag);
@@ -479,12 +506,12 @@ export class World {
     // wide fields left and right
     for (let i = 0; i < 46; i++) {
       const side = i % 2 ? 1 : -1;
-      spots.push([side * (14 + rnd() * 34), -75 + rnd() * 95]);
+      spots.push([side * (15 + rnd() * 34), -75 + rnd() * 95]);
     }
     // along the far road
     for (let i = 0; i < 14; i++) {
       const side = i % 2 ? 1 : -1;
-      spots.push([side * (7.5 + rnd() * 5), L.SPAWN_Z + 2 + rnd() * 24]);
+      spots.push([side * (7.5 + rnd() * 5), L.SPAWN_Z + 2 + rnd() * (L.DECK_Z1 - L.SPAWN_Z - 4)]);
     }
     const t = zone.deco;
     spots.forEach(([x, z], i) => {

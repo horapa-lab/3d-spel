@@ -59,6 +59,12 @@ export class Overlay2D {
     this.items.push({ kind: 'txt', x, y, vx: 0, vy: -60, t: 0, life, text, color, size });
   }
 
+  setCoinImage(url) {
+    if (!url) return;
+    this.coinImg = new Image();
+    this.coinImg.src = url;
+  }
+
   setTarget(x, y) {
     this.target.x = x;
     this.target.y = y;
@@ -138,6 +144,11 @@ export class Overlay2D {
       const y = a * a * c.sy + 2 * a * e * c.cy + e * e * ty;
       const r = 11 * (1 - k * 0.35);
       const sq = Math.abs(Math.cos(c.spin + c.t * 12));
+      if (this.coinImg && this.coinImg.complete && this.coinImg.naturalWidth) {
+        const sz = r * 3;
+        g.drawImage(this.coinImg, x - sz / 2, y - sz / 2, sz, sz);
+        continue;
+      }
       g.save();
       g.translate(x, y);
       g.scale(0.35 + sq * 0.65, 1);

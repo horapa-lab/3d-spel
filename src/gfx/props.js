@@ -152,16 +152,22 @@ export function buildCoinStack(n) {
 }
 
 // ------------------------------------------------------------------ gun mount
-/** A turret stand with a yaw pivot where the gun sits. */
-export function buildMount() {
+/** Chunky turret stand. `height` = where the gun pivot sits. Tall mounts stand on ammo crates. */
+export function buildMount(height = 1.0) {
   const k = new Kit();
-  k.rbox(1.1, 0.16, 1.1, 0.05, 0x3a3f48, 0, 0.08, 0, { m: 'metal' });
-  k.cyl(0.14, 0.62, 0x565e6a, 0, 0.47, 0, { axis: 'y', m: 'metal' });
-  for (let i = 0; i < 3; i++) {
-    const a = (i / 3) * Math.PI * 2;
-    k.box(0.08, 0.5, 0.08, 0x2c3139, Math.cos(a) * 0.28, 0.32, Math.sin(a) * 0.28, { rx: Math.sin(a) * 0.5, rz: -Math.cos(a) * 0.5 });
+  const base = height > 1.5 ? height - 0.95 : 0;
+  if (base > 0) {
+    // stacked ammo crates pedestal
+    k.rbox(1.5, base * 0.55, 1.3, 0.08, 0x7a8c3e, 0, base * 0.275, 0, { seg: 2 });
+    k.rbox(1.52, 0.06, 1.32, 0.02, 0x5b6a2c, 0, base * 0.5, 0);
+    k.rbox(1.3, base * 0.45, 1.1, 0.08, 0x8a9c4a, 0, base * 0.775, 0, { seg: 2 });
+    k.rbox(0.5, 0.12, 0.04, 0.02, 0xffcc33, 0, base * 0.3, 0.66);
+    k.rbox(0.5, 0.12, 0.04, 0.02, 0xffcc33, 0, base * 0.78, 0.56);
   }
-  k.cyl(0.3, 0.1, 0x2c3139, 0, 0.8, 0, { axis: 'y', m: 'metal', seg: 16 });
+  k.cyl(0.62, 0.18, 0x4a5262, 0, base + 0.09, 0, { axis: 'y', m: 'metal', seg: 20 });
+  k.cyl(0.5, 0.06, 0xffcc33, 0, base + 0.2, 0, { axis: 'y', seg: 20 });
+  k.cyl(0.18, height - base - 0.35, 0x6a7384, 0, base + (height - base) / 2 + 0.05, 0, { axis: 'y', m: 'metal', seg: 14 });
+  k.cyl(0.36, 0.14, 0x3b4150, 0, height - 0.18, 0, { axis: 'y', m: 'metal', seg: 18 });
   const g = k.build();
   g.traverse((o) => {
     if (o.isMesh) o.receiveShadow = true;
@@ -171,39 +177,95 @@ export function buildMount() {
 
 // ------------------------------------------------------------------ pads
 const padTexCache = {};
-function ringTexture(color) {
-  if (padTexCache[color]) return padTexCache[color];
+function drawPadIcon(g, icon, color) {
+  g.save();
+  g.translate(128, 128);
+  g.fillStyle = color;
+  g.strokeStyle = 'rgba(43,29,58,0.9)';
+  g.lineWidth = 10;
+  g.lineJoin = 'round';
+  g.beginPath();
+  if (icon === 'up') {
+    g.moveTo(0, -58);
+    g.lineTo(52, 0);
+    g.lineTo(22, 0);
+    g.lineTo(22, 52);
+    g.lineTo(-22, 52);
+    g.lineTo(-22, 0);
+    g.lineTo(-52, 0);
+    g.closePath();
+  } else if (icon === 'plus') {
+    const w = 20;
+    const l = 52;
+    g.moveTo(-w, -l);
+    g.lineTo(w, -l);
+    g.lineTo(w, -w);
+    g.lineTo(l, -w);
+    g.lineTo(l, w);
+    g.lineTo(w, w);
+    g.lineTo(w, l);
+    g.lineTo(-w, l);
+    g.lineTo(-w, w);
+    g.lineTo(-l, w);
+    g.lineTo(-l, -w);
+    g.lineTo(-w, -w);
+    g.closePath();
+  } else if (icon === 'star') {
+    for (let i = 0; i < 10; i++) {
+      const a = (i / 10) * Math.PI * 2 - Math.PI / 2;
+      const r = i % 2 ? 24 : 58;
+      g.lineTo(Math.cos(a) * r, Math.sin(a) * r);
+    }
+    g.closePath();
+  }
+  g.stroke();
+  g.fill();
+  g.restore();
+}
+
+function ringTexture(color, icon) {
+  const key = color + (icon || '');
+  if (padTexCache[key]) return padTexCache[key];
   const c = document.createElement('canvas');
   c.width = c.height = 256;
   const g = c.getContext('2d');
   g.clearRect(0, 0, 256, 256);
+  // soft filled disc + thick dashed rim (classic idle-game "stand here" circle)
+  g.globalAlpha = 0.28;
+  g.fillStyle = color;
+  g.beginPath();
+  g.arc(128, 128, 104, 0, Math.PI * 2);
+  g.fill();
+  g.globalAlpha = 1;
+  g.strokeStyle = 'rgba(43,29,58,0.35)';
+  g.lineWidth = 22;
+  g.beginPath();
+  g.arc(128, 131, 108, 0, Math.PI * 2);
+  g.stroke();
   g.strokeStyle = color;
   g.lineWidth = 16;
-  g.setLineDash([26, 14]);
+  g.setLineDash([30, 14]);
   g.beginPath();
   g.arc(128, 128, 108, 0, Math.PI * 2);
   g.stroke();
   g.setLineDash([]);
-  g.globalAlpha = 0.22;
-  g.fillStyle = color;
-  g.beginPath();
-  g.arc(128, 128, 100, 0, Math.PI * 2);
-  g.fill();
+  if (icon) drawPadIcon(g, icon, color);
   const tex = new THREE.CanvasTexture(c);
   tex.colorSpace = THREE.SRGBColorSpace;
-  padTexCache[color] = tex;
+  tex.anisotropy = 4;
+  padTexCache[key] = tex;
   return tex;
 }
 
 /** Hypercasual "stand here" circle with a fill that grows while you stand on it. */
-export function buildPad(radius, color = '#ffffff') {
+export function buildPad(radius, color = '#ffffff', icon = null) {
   const group = new THREE.Group();
   const ring = new THREE.Mesh(
     new THREE.PlaneGeometry(radius * 2.2, radius * 2.2),
-    new THREE.MeshBasicMaterial({ map: ringTexture(color), transparent: true, depthWrite: false })
+    new THREE.MeshBasicMaterial({ map: ringTexture(color, icon), transparent: true, depthWrite: false })
   );
   ring.rotation.x = -Math.PI / 2;
-  ring.position.y = 0.04;
+  ring.position.y = 0.16;
   ring.renderOrder = 2;
   group.add(ring);
   const fill = new THREE.Mesh(
@@ -211,7 +273,7 @@ export function buildPad(radius, color = '#ffffff') {
     new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.55, depthWrite: false })
   );
   fill.rotation.x = -Math.PI / 2;
-  fill.position.y = 0.05;
+  fill.position.y = 0.17;
   fill.scale.setScalar(0.001);
   fill.renderOrder = 3;
   group.add(fill);

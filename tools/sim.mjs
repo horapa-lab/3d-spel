@@ -2,7 +2,8 @@
 // Run: npm run sim   (prints milestones for ~3 hours of play)
 
 import * as E from '../src/core/economy.js';
-import { ENEMIES, ENEMY_IDS } from '../src/data/enemies.js';
+import { ENEMIES, ENEMY_IDS, enemyWeight } from '../src/data/enemies.js';
+import { zoneIndexForWave } from '../src/data/zones.js';
 import { RARITIES } from '../src/data/rarities.js';
 import { mulberry32 } from '../src/util/math.js';
 
@@ -20,8 +21,8 @@ function avgEnemy(w) {
   let tw = 0, hp = 0, rew = 0, dmg = 0;
   for (const id of ENEMY_IDS) {
     const e = ENEMIES[id];
-    if (e.minWave > w) continue;
-    const we = e.weight(w);
+    const we = enemyWeight(id, w, zoneIndexForWave(w));
+    if (!we) continue;
     const st = E.zombieStats(id, w);
     tw += we; hp += st.hp * we; rew += st.reward * we; dmg += st.dmg * we;
   }
@@ -82,17 +83,17 @@ while (t < HOURS * 3600) {
   const spawn = E.spawnPerSec(w);
   let earned = 0;
   if (E.isBossWave(w)) {
-    if (bossHp <= 0) { bossHp = ENEMIES.boss.hp * E.ZOMBIE_BASE_HP * E.hpMult(w); bossTimer = 60; }
+    if (bossHp <= 0) { bossHp = ENEMIES.boss_zombie.hp * E.ZOMBIE_BASE_HP * E.hpMult(w); bossTimer = 60; }
     // half the fire goes to the boss, the rest to the stream of normal zombies
     bossHp -= dps * 0.5 * dt;
     const k = Math.min(spawn * 0.5, (dps * 0.5) / en.hp);
     earned += k * dt * en.reward;
     bossTimer -= dt;
     if (bossHp <= 0) {
-      earned += E.zombieStats('boss', w).reward;
+      earned += E.zombieStats('boss_zombie', w).reward;
       s.freeCrates++;
       s.wave++; kills = 0;
-    } else if (bossTimer < -barricade / (E.zombieStats('boss', w).dmg)) {
+    } else if (bossTimer < -barricade / (E.zombieStats('boss_zombie', w).dmg)) {
       s.wave = Math.max(1, w - 1); breaches++; lastBreach = t; bossHp = 0; kills = 0;
       barricade = E.barricadeMaxHp(s);
     }

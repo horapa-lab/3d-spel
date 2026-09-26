@@ -1,29 +1,67 @@
-// Procedural, toy-like models for every weapon. All guns point along +Z,
-// +Y is up and the origin is the mount point (roughly the grip).
+// Chunky toy-style gun models (think idle mobile game / Roblox). Everything is
+// rounded and oversized: fat barrels, big mags, huge scopes, bright accents.
+// All guns point along +Z, +Y is up, the origin is the mount point.
 
 import * as THREE from 'three';
 import { Kit, goldColor } from './kit.js';
 
 const PI = Math.PI;
-const P = {
-  black: 0x1d2026, dark: 0x2c3139, gun: 0x454c57, steel: 0x7d8693, silver: 0xbfc6cf, chrome: 0xe2e7ee,
-  wood: 0xa2582a, woodL: 0xc98244, woodD: 0x6e3a1c,
-  tan: 0xc8a068, tanD: 0x9f7b48,
-  olive: 0x6b7a3a, oliveL: 0x8d9c4c, oliveD: 0x4c5628,
-  yellow: 0xffc62e, yellowD: 0xe0a51a, orange: 0xff8a1f, red: 0xe53935, lime: 0xb6ff3a,
-  white: 0xf5f5f5, pink: 0xff8fc8, violet: 0xb26bff, cyan: 0x45e8ff,
-  copper: 0xd9824a, brass: 0xd8ad45, glass: 0x9fe4ff,
+const C = {
+  slate: 0x434a5a, slateD: 0x353b48, slateL: 0x5f6879, steel: 0x98a3b3, silver: 0xd3dae4,
+  wood: 0xc2743a, woodL: 0xdc944f, woodD: 0x94552a,
+  tan: 0xe0bb82, tanD: 0xbf955c,
+  olive: 0x86a043, oliveL: 0xa6c255, oliveD: 0x62772f,
+  yellow: 0xffcc33, orange: 0xff8c26, red: 0xf04848, lime: 0xbdf23f,
+  white: 0xf7f7f7, pink: 0xff8fcf, violet: 0xa35cff, cyan: 0x4de8ff, blue: 0x3d8bff,
+  brass: 0xe8b84a, copper: 0xe8894f, lens: 0x5fd8ff,
 };
 
-/** Magazine that curves forward while going down (AK, MP5...). */
-function curvedMag(k, color, n, x, y, z, segLen, w, d, a0, da, o = {}) {
+// ------------------------------------------------------------------ part helpers
+/** Fat barrel with a rounded muzzle ring. from z0 to z1 */
+function barrel(k, r, z0, z1, color, y = 0, x = 0, ring = C.slateD) {
+  const len = z1 - z0;
+  k.cyl(r, len, color, x, y, z0 + len / 2, { m: 'metal', seg: 16 });
+  k.tor(r * 1.02, r * 0.38, ring, x, y, z1 - r * 0.2, { rs: 8, seg: 18, m: 'metal' });
+  k.cyl(r * 0.55, 0.03, 0x1b1d24, x, y, z1 + 0.005, { seg: 14 });
+}
+
+function grip(k, color, z, y = -0.28, h = 0.6, tilt = 0.28, w = 0.26) {
+  k.rbox(w, h, 0.32, 0.12, color, 0, y, z, { rx: tilt, seg: 3 });
+}
+
+function trigger(k, color, z, y = -0.02) {
+  k.tor(0.13, 0.035, color, 0, y - 0.04, z, { axis: 'x', arc: PI, rz: PI, seg: 10 });
+  k.rbox(0.05, 0.13, 0.06, 0.02, 0x2a2d36, 0, y - 0.02, z - 0.02);
+}
+
+function scope(k, y, z0, z1, r = 0.14, body = C.slateD, lens = C.lens) {
+  const len = z1 - z0;
+  k.cyl(r, len, body, 0, y, z0 + len / 2, { m: 'metal', seg: 16 });
+  k.cyl(r * 1.35, 0.22, body, 0, y, z1 - 0.05, { r2: r * 1.55, m: 'metal', seg: 16 });
+  k.cyl(r * 1.25, 0.16, body, 0, y, z0 + 0.02, { m: 'metal', seg: 16 });
+  k.cyl(r * 1.35, 0.02, lens, 0, y, z1 + 0.07, { m: 'glow', seg: 16 });
+  k.cyl(r * 1.1, 0.02, lens, 0, y, z0 - 0.07, { m: 'glow', seg: 16 });
+  k.cyl(r * 0.5, 0.14, body, 0, y + r + 0.05, z0 + len * 0.5, { axis: 'y', m: 'metal' });
+}
+
+function mount2(k, y0, y1, zs, color = C.slateD) {
+  for (const z of zs) k.rbox(0.16, y1 - y0, 0.16, 0.05, color, 0, (y0 + y1) / 2, z);
+}
+
+function stock(k, color, z, y = 0.02, len = 0.9, h = 0.42, w = 0.26, drop = -0.08) {
+  k.rbox(w, h, len, 0.14, color, 0, y, z, { rx: drop, seg: 3 });
+  k.rbox(w + 0.02, h + 0.04, 0.1, 0.05, 0x2a2d36, 0, y - (len / 2) * Math.sin(-drop), z - len / 2 - 0.02, { rx: drop });
+}
+
+/** Magazine curving forward (AK style). */
+function curvedMag(k, color, n, y, z, segLen, w, d, a0, da) {
   let cy = y;
   let cz = z;
   let a = a0;
   for (let i = 0; i < n; i++) {
     const dy = -Math.cos(a);
     const dz = Math.sin(a);
-    k.box(w, segLen * 1.04, d, color, x, cy + (dy * segLen) / 2, cz + (dz * segLen) / 2, { ...o, rx: -a });
+    k.rbox(w, segLen * 1.08, d, Math.min(w, d) * 0.3, color, 0, cy + (dy * segLen) / 2, cz + (dz * segLen) / 2, { rx: -a });
     cy += dy * segLen;
     cz += dz * segLen;
     a += da;
@@ -32,542 +70,498 @@ function curvedMag(k, color, n, x, y, z, segLen, w, d, a0, da, o = {}) {
 
 // ------------------------------------------------------------------ COMMON
 function pistol(k) {
-  k.rbox(0.2, 0.2, 1.0, 0.035, P.dark, 0, 0.2, 0.06, { m: 'metal' });
-  k.rbox(0.18, 0.13, 0.86, 0.035, P.yellow, 0, 0.05, 0.04);
-  k.rbox(0.18, 0.52, 0.27, 0.05, P.yellow, 0, -0.2, -0.3, { rx: 0.3 });
-  k.box(0.19, 0.28, 0.16, P.yellowD, 0, -0.22, -0.31, { rx: 0.3 });
-  k.box(0.2, 0.06, 0.28, P.black, 0, -0.46, -0.38, { rx: 0.3 });
-  k.box(0.07, 0.04, 0.3, P.yellow, 0, -0.1, 0.04);
-  k.box(0.07, 0.14, 0.05, P.yellow, 0, -0.04, 0.18);
-  k.box(0.04, 0.1, 0.04, P.black, 0, -0.03, 0.02, { rx: 0.2 });
-  k.cyl(0.055, 0.03, P.black, 0, 0.2, 0.565);
-  k.box(0.05, 0.05, 0.06, P.black, 0, 0.32, 0.5);
-  k.box(0.12, 0.05, 0.06, P.black, 0, 0.32, -0.38);
-  for (let i = 0; i < 4; i++) k.box(0.205, 0.13, 0.025, P.black, 0, 0.2, -0.26 - i * 0.05);
-  k.anchor('muzzle', 0, 0.2, 0.6);
+  k.rbox(0.3, 0.3, 1.05, 0.12, C.slate, 0, 0.26, 0.08, { seg: 3, m: 'metal' });
+  k.rbox(0.28, 0.2, 0.92, 0.09, C.yellow, 0, 0.05, 0.05, { seg: 3 });
+  grip(k, C.yellow, -0.28, -0.26, 0.62, 0.3, 0.28);
+  k.rbox(0.3, 0.1, 0.34, 0.04, C.slateD, 0, -0.55, -0.38, { rx: 0.3 });
+  for (let i = 0; i < 3; i++) k.rbox(0.31, 0.2, 0.04, 0.015, C.slateD, 0, 0.27, -0.26 - i * 0.08);
+  trigger(k, C.yellow, 0.08);
+  k.cyl(0.08, 0.04, 0x1b1d24, 0, 0.26, 0.61);
+  k.rbox(0.08, 0.08, 0.08, 0.03, C.orange, 0, 0.44, 0.5);
+  k.rbox(0.18, 0.08, 0.08, 0.03, C.slateD, 0, 0.44, -0.36);
+  k.anchor('muzzle', 0, 0.26, 0.64);
 }
 
 function revolver(k) {
-  k.cyl(0.075, 0.85, P.silver, 0, 0.24, 0.47, { m: 'metal', seg: 12 });
-  k.box(0.07, 0.07, 0.85, P.silver, 0, 0.3, 0.47, { m: 'metal' });
-  k.box(0.035, 0.09, 0.07, P.dark, 0, 0.36, 0.86);
-  k.rbox(0.17, 0.32, 0.5, 0.04, P.steel, 0, 0.14, -0.06, { m: 'metal' });
-  k.cyl(0.19, 0.34, P.gun, 0, 0.17, 0.0, { m: 'metal', seg: 12 });
+  barrel(k, 0.11, 0.1, 0.95, C.silver, 0.3, 0, C.steel);
+  k.rbox(0.12, 0.1, 0.8, 0.04, C.silver, 0, 0.42, 0.52, { m: 'metal' });
+  k.rbox(0.07, 0.12, 0.08, 0.03, C.red, 0, 0.5, 0.9);
+  k.rbox(0.26, 0.4, 0.58, 0.1, C.steel, 0, 0.18, -0.06, { m: 'metal', seg: 3 });
+  k.cyl(0.25, 0.4, C.slateL, 0, 0.2, 0.0, { m: 'metal', seg: 12 });
   for (let i = 0; i < 6; i++) {
     const a = (i / 6) * PI * 2;
-    k.cyl(0.04, 0.02, P.black, Math.cos(a) * 0.11, 0.17 + Math.sin(a) * 0.11, 0.17);
+    k.cyl(0.055, 0.03, 0x1b1d24, Math.cos(a) * 0.14, 0.2 + Math.sin(a) * 0.14, 0.2);
   }
-  k.rbox(0.16, 0.5, 0.24, 0.07, P.wood, 0, -0.2, -0.36, { rx: 0.5 });
-  k.box(0.06, 0.12, 0.09, P.dark, 0, 0.32, -0.31, { rx: -0.5 });
-  k.tor(0.09, 0.022, P.dark, 0, -0.04, 0.02, { axis: 'x' });
-  k.box(0.03, 0.09, 0.03, P.dark, 0, -0.02, 0.0);
-  k.anchor('muzzle', 0, 0.24, 0.9);
+  grip(k, C.wood, -0.36, -0.22, 0.6, 0.5, 0.26);
+  k.rbox(0.1, 0.16, 0.12, 0.04, C.slateD, 0, 0.4, -0.34, { rx: -0.5 });
+  trigger(k, C.steel, 0.02, 0.0);
+  k.anchor('muzzle', 0, 0.3, 0.98);
 }
 
 function microsmg(k) {
-  k.rbox(0.22, 0.27, 0.95, 0.035, P.black, 0, 0.16, 0.05);
-  k.box(0.16, 0.06, 0.75, P.dark, 0, 0.31, 0.05);
-  k.cyl(0.085, 0.07, P.gun, 0, 0.16, 0.55, { m: 'metal' });
-  k.cyl(0.05, 0.22, P.dark, 0, 0.16, 0.66, { m: 'metal' });
-  k.rbox(0.18, 0.46, 0.22, 0.05, P.black, 0, -0.18, 0.02, { rx: 0.12 });
-  k.box(0.13, 0.34, 0.15, P.gun, 0, -0.52, -0.02, { rx: 0.12 });
-  k.box(0.06, 0.035, 0.32, P.black, 0, -0.02, 0.25);
-  k.box(0.06, 0.12, 0.04, P.black, 0, 0.03, 0.4);
-  k.box(0.035, 0.09, 0.035, P.gun, 0, 0.0, 0.2);
-  k.box(0.035, 0.035, 0.52, P.gun, 0.085, 0.12, -0.66, { m: 'metal' });
-  k.box(0.035, 0.035, 0.52, P.gun, -0.085, 0.12, -0.66, { m: 'metal' });
-  k.box(0.22, 0.22, 0.045, P.gun, 0, 0.06, -0.93, { m: 'metal' });
-  k.box(0.07, 0.06, 0.07, P.gun, 0, 0.37, 0.22);
-  k.box(0.04, 0.09, 0.04, P.dark, 0, 0.37, 0.46);
-  k.anchor('muzzle', 0, 0.16, 0.78);
+  k.rbox(0.32, 0.36, 1.0, 0.12, C.slate, 0, 0.2, 0.05, { seg: 3 });
+  k.rbox(0.24, 0.1, 0.8, 0.04, C.slateL, 0, 0.4, 0.05);
+  barrel(k, 0.08, 0.5, 0.82, C.slateD, 0.2);
+  grip(k, C.slateD, 0.02, -0.22, 0.52, 0.12, 0.26);
+  k.rbox(0.2, 0.46, 0.22, 0.07, C.orange, 0, -0.62, -0.02, { rx: 0.12 });
+  trigger(k, C.slateD, 0.26, 0.02);
+  k.rbox(0.05, 0.05, 0.56, 0.02, C.steel, 0.11, 0.14, -0.7, { m: 'metal' });
+  k.rbox(0.05, 0.05, 0.56, 0.02, C.steel, -0.11, 0.14, -0.7, { m: 'metal' });
+  k.rbox(0.3, 0.28, 0.08, 0.04, C.slateD, 0, 0.1, -0.98);
+  k.rbox(0.1, 0.1, 0.1, 0.04, C.orange, 0, 0.46, 0.3);
+  k.anchor('muzzle', 0, 0.2, 0.86);
 }
 
 function pump(k) {
-  k.cyl(0.07, 1.62, P.dark, 0, 0.19, 0.53, { m: 'metal' });
-  k.cyl(0.06, 1.2, P.gun, 0, 0.05, 0.43, { m: 'metal' });
-  k.cyl(0.066, 0.04, P.dark, 0, 0.05, 1.04);
-  k.rbox(0.19, 0.17, 0.52, 0.06, P.woodL, 0, 0.06, 0.72);
-  for (let i = 0; i < 4; i++) k.box(0.2, 0.18, 0.025, P.woodD, 0, 0.06, 0.55 + i * 0.11);
-  k.rbox(0.2, 0.3, 0.58, 0.04, P.black, 0, 0.12, -0.28);
-  k.box(0.205, 0.08, 0.22, P.dark, 0, 0.17, -0.2);
-  k.rbox(0.15, 0.3, 0.26, 0.06, P.wood, 0, -0.06, -0.62, { rx: 0.55 });
-  k.rbox(0.16, 0.28, 0.9, 0.07, P.wood, 0, -0.03, -1.04, { rx: -0.1 });
-  k.box(0.17, 0.32, 0.07, P.black, 0, -0.08, -1.5, { rx: -0.1 });
-  k.box(0.06, 0.035, 0.26, P.black, 0, -0.07, -0.33);
-  k.box(0.035, 0.08, 0.035, P.black, 0, -0.03, -0.3);
-  k.sph(0.035, P.silver, 0, 0.28, 1.3, { m: 'metal' });
-  k.anchor('muzzle', 0, 0.19, 1.36);
+  barrel(k, 0.1, -0.2, 1.4, C.slateD, 0.24);
+  k.cyl(0.09, 1.1, C.slateL, 0, 0.06, 0.5, { m: 'metal' });
+  k.rbox(0.28, 0.24, 0.56, 0.1, C.woodL, 0, 0.07, 0.78, { seg: 3 });
+  for (let i = 0; i < 4; i++) k.rbox(0.29, 0.25, 0.03, 0.02, C.woodD, 0, 0.07, 0.6 + i * 0.12);
+  k.rbox(0.3, 0.4, 0.62, 0.1, C.slate, 0, 0.14, -0.3, { seg: 3 });
+  k.rbox(0.31, 0.12, 0.28, 0.04, C.red, 0, 0.22, -0.26);
+  stock(k, C.wood, -1.0, -0.02, 0.8, 0.38, 0.24, -0.12);
+  grip(k, C.wood, -0.62, -0.14, 0.38, 0.55, 0.22);
+  trigger(k, C.slateD, -0.3, -0.06);
+  k.sph(0.05, C.yellow, 0, 0.36, 1.3, { m: 'metal' });
+  k.anchor('muzzle', 0, 0.24, 1.44);
 }
 
 // ------------------------------------------------------------------ UNCOMMON
 function handcannon(k) {
-  k.rbox(0.25, 0.3, 1.12, 0.035, P.silver, 0, 0.24, 0.1, { m: 'metal' });
-  k.box(0.14, 0.05, 0.9, P.chrome, 0, 0.405, 0.18, { m: 'metal' });
-  k.cyl(0.065, 0.03, P.black, 0, 0.26, 0.665);
-  k.rbox(0.22, 0.16, 0.92, 0.035, P.steel, 0, 0.03, 0.06, { m: 'metal' });
-  k.rbox(0.22, 0.62, 0.33, 0.06, P.black, 0, -0.3, -0.32, { rx: 0.3 });
-  for (let i = 0; i < 5; i++) k.box(0.255, 0.2, 0.025, P.gun, 0, 0.24, -0.3 - i * 0.04);
-  k.box(0.05, 0.07, 0.07, P.black, 0, 0.45, 0.56);
-  k.box(0.14, 0.07, 0.07, P.black, 0, 0.45, -0.38);
-  k.box(0.07, 0.04, 0.32, P.steel, 0, -0.1, 0.06, { m: 'metal' });
-  k.box(0.07, 0.15, 0.05, P.steel, 0, -0.03, 0.21, { m: 'metal' });
-  k.box(0.04, 0.1, 0.04, P.black, 0, -0.03, 0.03);
-  k.box(0.08, 0.09, 0.12, P.gun, 0, 0.33, -0.5);
-  k.anchor('muzzle', 0, 0.26, 0.7);
+  k.rbox(0.36, 0.38, 1.2, 0.12, C.silver, 0, 0.3, 0.12, { seg: 3, m: 'metal' });
+  k.rbox(0.2, 0.08, 1.0, 0.04, C.steel, 0, 0.52, 0.18, { m: 'metal' });
+  k.cyl(0.1, 0.04, 0x1b1d24, 0, 0.32, 0.73);
+  k.rbox(0.32, 0.2, 1.0, 0.08, C.slateL, 0, 0.04, 0.06, { m: 'metal' });
+  grip(k, C.slate, -0.34, -0.34, 0.72, 0.3, 0.32);
+  k.rbox(0.33, 0.3, 0.2, 0.08, C.red, 0, -0.3, -0.32, { rx: 0.3 });
+  for (let i = 0; i < 4; i++) k.rbox(0.37, 0.24, 0.04, 0.015, C.steel, 0, 0.3, -0.3 - i * 0.07);
+  trigger(k, C.silver, 0.1, -0.02);
+  k.rbox(0.08, 0.1, 0.08, 0.03, C.orange, 0, 0.58, 0.62);
+  k.anchor('muzzle', 0, 0.32, 0.76);
 }
 
 function tacsmg(k) {
-  k.rbox(0.2, 0.27, 1.0, 0.06, P.black, 0, 0.17, -0.02);
-  k.cyl(0.07, 0.62, P.dark, 0, 0.3, 0.3);
-  k.rbox(0.25, 0.26, 0.46, 0.08, P.dark, 0, 0.12, 0.66);
-  k.cyl(0.085, 0.55, P.black, 0, 0.17, 1.15);
-  k.cyl(0.07, 0.02, P.gun, 0, 0.17, 1.43);
-  curvedMag(k, P.gun, 3, 0, 0.06, 0.26, 0.19, 0.12, 0.18, 0.1, 0.17);
-  k.rbox(0.16, 0.4, 0.2, 0.05, P.black, 0, -0.12, -0.28, { rx: 0.32 });
-  k.box(0.06, 0.035, 0.26, P.black, 0, -0.02, -0.08);
-  k.box(0.035, 0.035, 0.6, P.gun, 0.07, 0.2, -0.8, { m: 'metal' });
-  k.box(0.035, 0.035, 0.6, P.gun, -0.07, 0.2, -0.8, { m: 'metal' });
-  k.rbox(0.17, 0.32, 0.08, 0.03, P.black, 0, 0.12, -1.1);
-  k.cyl(0.07, 0.1, P.dark, 0, 0.36, -0.36, { axis: 'x' });
-  k.box(0.12, 0.13, 0.06, P.dark, 0, 0.36, 0.56);
-  k.anchor('muzzle', 0, 0.17, 1.45);
+  k.rbox(0.3, 0.36, 1.05, 0.14, C.slate, 0, 0.2, -0.02, { seg: 3 });
+  k.cyl(0.09, 0.64, C.slateL, 0, 0.38, 0.32);
+  k.rbox(0.36, 0.34, 0.5, 0.15, C.blue, 0, 0.14, 0.7, { seg: 3 });
+  k.cyl(0.12, 0.6, C.slateD, 0, 0.2, 1.2, { m: 'metal', seg: 16 });
+  k.tor(0.12, 0.04, C.blue, 0, 0.2, 1.48, { m: 'metal' });
+  curvedMag(k, C.slateD, 3, 0.04, 0.26, 0.2, 0.2, 0.24, 0.1, 0.17);
+  grip(k, C.slateD, -0.3, -0.16, 0.46, 0.32, 0.24);
+  trigger(k, C.slateD, -0.06, 0.0);
+  k.rbox(0.05, 0.05, 0.62, 0.02, C.steel, 0.1, 0.24, -0.8, { m: 'metal' });
+  k.rbox(0.05, 0.05, 0.62, 0.02, C.steel, -0.1, 0.24, -0.8, { m: 'metal' });
+  k.rbox(0.26, 0.4, 0.1, 0.05, C.slateD, 0, 0.14, -1.12);
+  k.cyl(0.1, 0.12, C.slateD, 0, 0.46, -0.36, { axis: 'x' });
+  k.rbox(0.16, 0.16, 0.08, 0.05, C.slateD, 0, 0.44, 0.6);
+  k.anchor('muzzle', 0, 0.2, 1.52);
 }
 
 function doublebarrel(k) {
-  k.cyl(0.075, 1.5, P.dark, -0.08, 0.2, 0.55, { m: 'metal' });
-  k.cyl(0.075, 1.5, P.dark, 0.08, 0.2, 0.55, { m: 'metal' });
-  k.box(0.05, 0.05, 1.5, P.gun, 0, 0.28, 0.55, { m: 'metal' });
-  k.rbox(0.25, 0.13, 0.62, 0.05, P.woodL, 0, 0.08, 0.45);
-  k.rbox(0.27, 0.27, 0.42, 0.05, P.silver, 0, 0.15, -0.38, { m: 'metal' });
-  k.box(0.275, 0.1, 0.16, P.brass, 0, 0.12, -0.4, { m: 'metal' });
-  k.box(0.05, 0.1, 0.1, P.dark, -0.07, 0.32, -0.52, { rx: -0.4 });
-  k.box(0.05, 0.1, 0.1, P.dark, 0.07, 0.32, -0.52, { rx: -0.4 });
-  k.rbox(0.15, 0.3, 0.28, 0.06, P.wood, 0, -0.06, -0.72, { rx: 0.55 });
-  k.rbox(0.17, 0.3, 0.9, 0.08, P.wood, 0, -0.04, -1.12, { rx: -0.1 });
-  k.box(0.18, 0.33, 0.06, P.woodD, 0, -0.09, -1.58, { rx: -0.1 });
-  k.box(0.06, 0.035, 0.24, P.dark, 0, -0.02, -0.42);
-  k.box(0.035, 0.08, 0.035, P.dark, 0, 0.02, -0.4);
-  k.anchor('muzzle', 0, 0.2, 1.32);
+  barrel(k, 0.1, -0.2, 1.3, C.slateD, 0.24, -0.11);
+  barrel(k, 0.1, -0.2, 1.3, C.slateD, 0.24, 0.11);
+  k.rbox(0.36, 0.18, 0.66, 0.08, C.woodL, 0, 0.1, 0.44, { seg: 3 });
+  k.rbox(0.38, 0.36, 0.46, 0.1, C.silver, 0, 0.18, -0.4, { m: 'metal', seg: 3 });
+  k.rbox(0.39, 0.14, 0.18, 0.05, C.brass, 0, 0.14, -0.42, { m: 'metal' });
+  for (const sx of [-1, 1]) k.rbox(0.07, 0.14, 0.12, 0.03, C.slateD, sx * 0.09, 0.4, -0.56, { rx: -0.4 });
+  stock(k, C.wood, -1.1, -0.04, 0.9, 0.42, 0.26, -0.12);
+  grip(k, C.wood, -0.74, -0.08, 0.36, 0.55, 0.22);
+  trigger(k, C.brass, -0.42, -0.04);
+  k.anchor('muzzle', 0, 0.24, 1.34);
 }
 
 function huntingrifle(k) {
-  k.rbox(0.18, 0.2, 1.3, 0.06, P.wood, 0, 0.03, 0.45);
-  k.cyl(0.05, 2.05, P.dark, 0, 0.15, 0.9, { m: 'metal' });
-  k.cyl(0.085, 0.62, P.gun, 0, 0.16, -0.22, { m: 'metal' });
-  k.cyl(0.022, 0.2, P.silver, 0.12, 0.16, -0.38, { axis: 'x', m: 'metal' });
-  k.sph(0.05, P.silver, 0.23, 0.16, -0.38, { m: 'metal' });
-  k.rbox(0.16, 0.3, 0.3, 0.06, P.wood, 0, -0.06, -0.52, { rx: 0.45 });
-  k.rbox(0.18, 0.36, 0.78, 0.08, P.wood, 0, -0.06, -1.02, { rx: -0.08 });
-  k.box(0.19, 0.38, 0.06, P.black, 0, -0.09, -1.43, { rx: -0.08 });
-  k.cyl(0.07, 0.8, P.black, 0, 0.42, -0.1, { m: 'metal' });
-  k.cyl(0.07, 0.2, P.black, 0, 0.42, 0.38, { r2: 0.11, m: 'metal' });
-  k.cyl(0.09, 0.14, P.black, 0, 0.42, -0.55, { m: 'metal' });
-  k.cyl(0.1, 0.01, P.glass, 0, 0.42, 0.485, { m: 'glow' });
-  k.box(0.06, 0.13, 0.08, P.black, 0, 0.28, -0.3);
-  k.box(0.06, 0.13, 0.08, P.black, 0, 0.28, 0.1);
-  k.box(0.06, 0.035, 0.24, P.dark, 0, -0.12, -0.28);
-  k.anchor('muzzle', 0, 0.15, 1.93);
+  k.rbox(0.26, 0.26, 1.4, 0.1, C.wood, 0, 0.04, 0.45, { seg: 3 });
+  barrel(k, 0.08, 0.0, 2.0, C.slateD, 0.18);
+  k.cyl(0.12, 0.66, C.slateL, 0, 0.18, -0.22, { m: 'metal' });
+  k.cyl(0.035, 0.24, C.silver, 0.14, 0.18, -0.4, { axis: 'x', m: 'metal' });
+  k.sph(0.07, C.brass, 0.27, 0.18, -0.4, { m: 'metal' });
+  stock(k, C.wood, -1.0, -0.06, 0.8, 0.44, 0.26, -0.1);
+  grip(k, C.woodD, -0.54, -0.1, 0.34, 0.45, 0.22);
+  scope(k, 0.52, -0.5, 0.36, 0.1, C.slateD);
+  mount2(k, 0.26, 0.44, [-0.3, 0.14]);
+  trigger(k, C.slateD, -0.28, -0.1);
+  k.rbox(0.28, 0.08, 0.3, 0.03, C.orange, 0, 0.18, 0.9);
+  k.anchor('muzzle', 0, 0.18, 2.03);
 }
 
 // ------------------------------------------------------------------ RARE
 function ak(k) {
-  k.rbox(0.2, 0.28, 1.0, 0.03, P.black, 0, 0.14, -0.1);
-  k.rbox(0.18, 0.09, 0.96, 0.04, P.dark, 0, 0.31, -0.12, { m: 'metal' });
-  k.rbox(0.22, 0.21, 0.6, 0.06, P.woodL, 0, 0.1, 0.7);
-  k.rbox(0.16, 0.12, 0.52, 0.05, P.woodL, 0, 0.29, 0.66);
-  k.cyl(0.045, 1.05, P.dark, 0, 0.18, 1.32, { m: 'metal' });
-  k.cyl(0.035, 0.6, P.dark, 0, 0.3, 1.2, { m: 'metal' });
-  k.box(0.1, 0.2, 0.1, P.dark, 0, 0.25, 1.05);
-  k.box(0.06, 0.2, 0.06, P.dark, 0, 0.33, 1.6);
-  k.cyl(0.065, 0.16, P.black, 0, 0.18, 1.9, { m: 'metal' });
-  k.box(0.1, 0.08, 0.14, P.dark, 0, 0.38, 0.36);
-  curvedMag(k, 0xb4501c, 4, 0, 0.02, 0.2, 0.19, 0.14, 0.26, 0.12, 0.17);
-  k.rbox(0.16, 0.36, 0.2, 0.05, P.woodD, 0, -0.14, -0.36, { rx: 0.38 });
-  k.rbox(0.18, 0.28, 0.92, 0.06, P.woodL, 0, 0.04, -1.02, { rx: -0.12 });
-  k.box(0.19, 0.32, 0.05, P.black, 0, -0.02, -1.49, { rx: -0.12 });
-  k.box(0.06, 0.035, 0.28, P.dark, 0, -0.02, -0.12);
-  k.box(0.035, 0.09, 0.035, P.dark, 0, 0.02, -0.12);
-  k.box(0.1, 0.05, 0.05, P.silver, 0.12, 0.24, 0.26, { m: 'metal' });
-  k.anchor('muzzle', 0, 0.18, 1.99);
+  k.rbox(0.3, 0.38, 1.05, 0.1, C.slate, 0, 0.16, -0.1, { seg: 3 });
+  k.rbox(0.26, 0.14, 1.0, 0.06, C.slateL, 0, 0.4, -0.12, { m: 'metal' });
+  k.rbox(0.32, 0.28, 0.62, 0.12, C.woodL, 0, 0.12, 0.72, { seg: 3 });
+  k.rbox(0.24, 0.16, 0.54, 0.07, C.woodL, 0, 0.36, 0.68);
+  barrel(k, 0.07, 1.0, 1.84, C.slateD, 0.2);
+  k.cyl(0.05, 0.62, C.slateD, 0, 0.36, 1.22, { m: 'metal' });
+  k.rbox(0.14, 0.26, 0.12, 0.04, C.slateD, 0, 0.3, 1.05);
+  k.rbox(0.08, 0.26, 0.08, 0.03, C.slateD, 0, 0.4, 1.6);
+  k.cyl(0.1, 0.2, C.slateD, 0, 0.2, 1.92, { m: 'metal' });
+  curvedMag(k, C.orange, 4, 0.0, 0.2, 0.2, 0.2, 0.34, 0.12, 0.17);
+  grip(k, C.woodD, -0.36, -0.16, 0.44, 0.38, 0.22);
+  stock(k, C.woodL, -1.02, 0.04, 0.9, 0.36, 0.24, -0.12);
+  trigger(k, C.slateD, -0.12, -0.02);
+  k.rbox(0.14, 0.07, 0.07, 0.03, C.silver, 0.16, 0.3, 0.26, { m: 'metal' });
+  k.anchor('muzzle', 0, 0.2, 2.03);
 }
 
 function m4(k) {
-  k.rbox(0.18, 0.2, 0.92, 0.03, P.black, 0, 0.24, -0.1);
-  k.rbox(0.17, 0.2, 0.6, 0.03, P.black, 0, 0.06, -0.15);
-  k.rbox(0.24, 0.24, 0.82, 0.05, P.tan, 0, 0.22, 0.76);
-  for (let i = 0; i < 7; i++) k.box(0.1, 0.03, 0.06, P.black, 0, 0.355, 0.42 + i * 0.11);
-  k.cyl(0.04, 0.6, P.dark, 0, 0.22, 1.45, { m: 'metal' });
-  k.cyl(0.06, 0.15, P.black, 0, 0.22, 1.8, { m: 'metal' });
-  k.box(0.05, 0.22, 0.05, P.black, 0, 0.42, 1.12);
-  k.rbox(0.15, 0.17, 0.26, 0.03, P.black, 0, 0.44, 0.02);
-  k.box(0.1, 0.1, 0.02, 0xff3344, 0, 0.45, 0.155, { m: 'glow' });
-  curvedMag(k, P.tanD, 2, 0, 0.02, 0.12, 0.26, 0.12, 0.2, 0.05, 0.14);
-  k.rbox(0.14, 0.34, 0.18, 0.05, P.black, 0, -0.12, -0.36, { rx: 0.35 });
-  k.cyl(0.06, 0.45, P.black, 0, 0.2, -0.78);
-  k.rbox(0.16, 0.3, 0.4, 0.05, P.tan, 0, 0.12, -1.0);
-  k.rbox(0.1, 0.3, 0.1, 0.04, P.black, 0, 0.0, 0.9);
-  k.box(0.06, 0.035, 0.26, P.black, 0, -0.03, -0.12);
-  k.box(0.1, 0.05, 0.05, P.dark, 0.12, 0.28, -0.4);
-  k.anchor('muzzle', 0, 0.22, 1.88);
+  k.rbox(0.28, 0.28, 0.95, 0.08, C.slate, 0, 0.28, -0.1, { seg: 3 });
+  k.rbox(0.26, 0.28, 0.62, 0.08, C.slate, 0, 0.06, -0.15, { seg: 3 });
+  k.rbox(0.36, 0.34, 0.86, 0.14, C.tan, 0, 0.26, 0.78, { seg: 3 });
+  for (let i = 0; i < 6; i++) k.rbox(0.16, 0.05, 0.08, 0.02, C.slateD, 0, 0.45, 0.46 + i * 0.13);
+  barrel(k, 0.065, 1.2, 1.78, C.slateD, 0.26);
+  k.rbox(0.07, 0.3, 0.07, 0.03, C.slateD, 0, 0.48, 1.12);
+  k.rbox(0.22, 0.24, 0.3, 0.07, C.slateD, 0, 0.56, 0.0, { seg: 3 });
+  k.rbox(0.14, 0.14, 0.03, 0.03, 0xff3344, 0, 0.58, 0.16, { m: 'glow' });
+  curvedMag(k, C.tanD, 2, -0.06, 0.12, 0.3, 0.18, 0.28, 0.06, 0.14);
+  grip(k, C.slateD, -0.38, -0.14, 0.42, 0.36, 0.22);
+  k.cyl(0.09, 0.5, C.slateD, 0, 0.24, -0.8);
+  k.rbox(0.24, 0.4, 0.46, 0.1, C.tan, 0, 0.16, -1.02, { seg: 3 });
+  k.rbox(0.14, 0.38, 0.14, 0.06, C.slateD, 0, -0.04, 0.9);
+  trigger(k, C.slateD, -0.12, -0.04);
+  k.anchor('muzzle', 0, 0.26, 1.82);
 }
 
 function battlerifle(k) {
-  k.rbox(0.22, 0.26, 1.45, 0.04, P.tan, 0, 0.26, 0.22);
-  k.rbox(0.2, 0.2, 0.55, 0.04, P.black, 0, 0.06, -0.22);
-  for (let i = 0; i < 9; i++) k.box(0.1, 0.03, 0.07, P.black, 0, 0.405, -0.35 + i * 0.14);
-  k.cyl(0.045, 0.5, P.dark, 0, 0.24, 1.15, { m: 'metal' });
-  k.cyl(0.07, 0.2, P.black, 0, 0.24, 1.46, { m: 'metal' });
-  k.rbox(0.2, 0.22, 0.3, 0.04, P.black, 0, 0.53, 0.0);
-  k.box(0.14, 0.13, 0.02, 0x6ff0ff, 0, 0.55, 0.155, { m: 'glow' });
-  k.box(0.14, 0.4, 0.22, P.black, 0, -0.2, 0.08, { rx: -0.08 });
-  k.rbox(0.15, 0.34, 0.2, 0.05, P.black, 0, -0.12, -0.42, { rx: 0.35 });
-  k.rbox(0.18, 0.34, 0.62, 0.05, P.tan, 0, 0.17, -0.98);
-  k.rbox(0.14, 0.08, 0.42, 0.03, P.black, 0, 0.38, -0.98);
-  k.box(0.06, 0.035, 0.26, P.black, 0, -0.03, -0.18);
-  k.box(0.12, 0.05, 0.05, P.black, -0.14, 0.3, 0.4);
-  k.anchor('muzzle', 0, 0.24, 1.57);
+  k.rbox(0.34, 0.36, 1.5, 0.12, C.tan, 0, 0.3, 0.22, { seg: 3 });
+  k.rbox(0.3, 0.28, 0.58, 0.08, C.slate, 0, 0.06, -0.22, { seg: 3 });
+  for (let i = 0; i < 8; i++) k.rbox(0.16, 0.05, 0.1, 0.02, C.slateD, 0, 0.5, -0.3 + i * 0.15);
+  barrel(k, 0.075, 0.96, 1.42, C.slateD, 0.28);
+  k.cyl(0.11, 0.22, C.slateD, 0, 0.28, 1.5, { m: 'metal' });
+  k.rbox(0.28, 0.3, 0.34, 0.08, C.slateD, 0, 0.66, 0.02, { seg: 3 });
+  k.rbox(0.2, 0.18, 0.03, 0.03, 0x6ff0ff, 0, 0.68, 0.2, { m: 'glow' });
+  k.rbox(0.22, 0.5, 0.28, 0.06, C.slateD, 0, -0.26, 0.08, { rx: -0.08 });
+  grip(k, C.slateD, -0.44, -0.14, 0.44, 0.36, 0.22);
+  k.rbox(0.28, 0.44, 0.64, 0.12, C.tan, 0, 0.2, -0.98, { seg: 3 });
+  k.rbox(0.2, 0.1, 0.44, 0.04, C.slateD, 0, 0.46, -0.98);
+  trigger(k, C.slateD, -0.2, -0.04);
+  k.rbox(0.16, 0.07, 0.07, 0.03, C.red, -0.18, 0.36, 0.42);
+  k.anchor('muzzle', 0, 0.28, 1.62);
 }
 
 function drumshotgun(k) {
-  k.rbox(0.28, 0.4, 1.4, 0.06, P.black, 0, 0.22, -0.05);
-  k.box(0.29, 0.06, 0.62, P.orange, 0, 0.3, -0.3);
-  k.rbox(0.2, 0.2, 0.52, 0.05, P.dark, 0, 0.28, 0.86);
-  for (let i = 0; i < 3; i++) k.box(0.21, 0.06, 0.08, P.black, 0, 0.28, 0.72 + i * 0.14);
-  k.cyl(0.075, 0.3, P.black, 0, 0.28, 1.2, { m: 'metal' });
-  k.cyl(0.34, 0.26, P.gun, 0, -0.24, 0.3, { axis: 'x', m: 'metal', seg: 20 });
-  k.cyl(0.2, 0.28, P.dark, 0, -0.24, 0.3, { axis: 'x', seg: 16 });
-  k.box(0.06, 0.2, 0.06, P.black, 0, 0.5, 0.28);
-  k.box(0.06, 0.2, 0.06, P.black, 0, 0.5, -0.28);
-  k.box(0.06, 0.06, 0.62, P.black, 0, 0.6, 0);
-  k.rbox(0.16, 0.34, 0.2, 0.05, P.black, 0, -0.1, -0.48, { rx: 0.3 });
-  k.rbox(0.24, 0.46, 0.36, 0.06, P.black, 0, 0.14, -0.92);
-  k.anchor('muzzle', 0, 0.28, 1.36);
+  k.rbox(0.4, 0.5, 1.45, 0.16, C.slate, 0, 0.24, -0.05, { seg: 3 });
+  k.rbox(0.41, 0.1, 0.7, 0.04, C.orange, 0, 0.36, -0.3);
+  k.rbox(0.3, 0.3, 0.56, 0.12, C.slateD, 0, 0.3, 0.9, { seg: 3 });
+  for (let i = 0; i < 3; i++) k.rbox(0.31, 0.1, 0.1, 0.04, C.orange, 0, 0.3, 0.74 + i * 0.16);
+  barrel(k, 0.11, 1.1, 1.36, C.slateD, 0.3);
+  k.cyl(0.42, 0.32, C.slateL, 0, -0.28, 0.3, { axis: 'x', m: 'metal', seg: 22 });
+  k.cyl(0.26, 0.34, C.orange, 0, -0.28, 0.3, { axis: 'x', seg: 18 });
+  k.rbox(0.08, 0.26, 0.08, 0.03, C.slateD, 0, 0.6, 0.3);
+  k.rbox(0.08, 0.26, 0.08, 0.03, C.slateD, 0, 0.6, -0.3);
+  k.rbox(0.08, 0.08, 0.7, 0.04, C.slateD, 0, 0.72, 0);
+  grip(k, C.slateD, -0.52, -0.12, 0.44, 0.3, 0.24);
+  k.rbox(0.34, 0.56, 0.4, 0.14, C.slate, 0, 0.16, -0.94, { seg: 3 });
+  k.anchor('muzzle', 0, 0.3, 1.4);
 }
 
 // ------------------------------------------------------------------ EPIC
 function sniper(k) {
-  k.rbox(0.2, 0.26, 1.3, 0.05, P.olive, 0, 0.12, 0.1);
-  k.cyl(0.05, 1.8, P.dark, 0, 0.2, 1.45, { m: 'metal' });
-  k.rbox(0.13, 0.13, 0.24, 0.02, P.black, 0, 0.2, 2.44);
-  k.cyl(0.085, 1.0, P.black, 0, 0.52, 0.05, { m: 'metal' });
-  k.cyl(0.085, 0.26, P.black, 0, 0.52, 0.66, { r2: 0.14, m: 'metal' });
-  k.cyl(0.1, 0.16, P.black, 0, 0.52, -0.52, { m: 'metal' });
-  k.cyl(0.13, 0.01, P.glass, 0, 0.52, 0.795, { m: 'glow' });
-  k.cyl(0.05, 0.12, P.dark, 0, 0.64, 0.05, { axis: 'y' });
-  k.cyl(0.05, 0.12, P.dark, 0.1, 0.52, 0.05, { axis: 'x' });
-  k.box(0.07, 0.16, 0.09, P.black, 0, 0.34, -0.25);
-  k.box(0.07, 0.16, 0.09, P.black, 0, 0.34, 0.3);
-  k.cyl(0.022, 0.2, P.silver, 0.12, 0.2, -0.35, { axis: 'x', m: 'metal' });
-  k.sph(0.05, P.black, 0.23, 0.2, -0.35);
-  k.box(0.14, 0.24, 0.24, P.black, 0, -0.08, 0.1);
-  k.rbox(0.15, 0.34, 0.2, 0.05, P.black, 0, -0.1, -0.5, { rx: 0.3 });
-  k.rbox(0.18, 0.36, 0.8, 0.06, P.olive, 0, 0.08, -1.05);
-  k.rbox(0.14, 0.1, 0.46, 0.03, P.oliveD, 0, 0.3, -0.98);
-  k.box(0.19, 0.4, 0.06, P.black, 0, 0.06, -1.47);
-  k.box(0.04, 0.6, 0.04, P.gun, 0.1, -0.16, 1.0, { rx: -0.35, rz: 0.25, m: 'metal' });
-  k.box(0.04, 0.6, 0.04, P.gun, -0.1, -0.16, 1.0, { rx: -0.35, rz: -0.25, m: 'metal' });
-  k.anchor('muzzle', 0, 0.2, 2.57);
+  k.rbox(0.3, 0.34, 1.35, 0.12, C.olive, 0, 0.14, 0.1, { seg: 3 });
+  barrel(k, 0.08, 0.7, 2.3, C.slateD, 0.24);
+  k.rbox(0.2, 0.2, 0.3, 0.06, C.slateD, 0, 0.24, 2.4);
+  scope(k, 0.62, -0.45, 0.6, 0.13, C.slateD);
+  mount2(k, 0.32, 0.54, [-0.25, 0.3]);
+  k.cyl(0.035, 0.24, C.silver, 0.16, 0.24, -0.35, { axis: 'x', m: 'metal' });
+  k.sph(0.07, C.slateD, 0.3, 0.24, -0.35);
+  k.rbox(0.2, 0.32, 0.3, 0.06, C.slateD, 0, -0.12, 0.1);
+  grip(k, C.slateD, -0.52, -0.14, 0.42, 0.3, 0.22);
+  k.rbox(0.28, 0.46, 0.84, 0.14, C.olive, 0, 0.1, -1.05, { seg: 3 });
+  k.rbox(0.2, 0.14, 0.5, 0.06, C.oliveD, 0, 0.38, -0.98);
+  k.rbox(0.3, 0.5, 0.08, 0.04, C.slateD, 0, 0.08, -1.48);
+  k.rbox(0.06, 0.66, 0.06, 0.03, C.steel, 0.12, -0.18, 1.02, { rx: -0.35, rz: 0.25, m: 'metal' });
+  k.rbox(0.06, 0.66, 0.06, 0.03, C.steel, -0.12, -0.18, 1.02, { rx: -0.35, rz: -0.25, m: 'metal' });
+  k.rbox(0.31, 0.1, 0.4, 0.04, C.orange, 0, 0.26, 0.5);
+  k.anchor('muzzle', 0, 0.24, 2.56);
 }
 
 function lmg(k) {
-  k.rbox(0.26, 0.34, 1.1, 0.04, P.black, 0, 0.2, -0.05);
-  k.rbox(0.24, 0.1, 0.6, 0.03, P.dark, 0, 0.41, 0.02);
-  k.rbox(0.26, 0.2, 0.5, 0.05, P.black, 0, 0.12, 0.72);
-  k.cyl(0.055, 1.3, P.dark, 0, 0.2, 1.3, { m: 'metal' });
-  k.box(0.12, 0.05, 0.75, P.gun, 0, 0.29, 1.2, { m: 'metal' });
-  k.cyl(0.075, 0.14, P.black, 0, 0.2, 1.98, { m: 'metal' });
-  k.box(0.05, 0.2, 0.05, P.black, 0, 0.36, 1.75);
-  k.box(0.05, 0.16, 0.05, P.black, 0, 0.5, 0.64);
-  k.box(0.05, 0.05, 0.34, P.black, 0, 0.6, 0.76);
-  k.rbox(0.32, 0.36, 0.42, 0.04, P.olive, -0.02, -0.22, 0.12);
-  k.box(0.33, 0.05, 0.43, P.oliveD, -0.02, -0.08, 0.12);
-  for (let i = 0; i < 5; i++) k.cyl(0.025, 0.14, P.brass, -0.2, -0.02 + i * 0.06, 0.1, { axis: 'x', m: 'metal' });
-  k.rbox(0.16, 0.36, 0.2, 0.05, P.black, 0, -0.12, -0.4, { rx: 0.3 });
-  k.rbox(0.2, 0.36, 0.7, 0.06, P.black, 0, 0.14, -0.95);
-  k.box(0.035, 0.035, 0.55, P.gun, 0.07, 0.08, 1.4, { m: 'metal' });
-  k.box(0.035, 0.035, 0.55, P.gun, -0.07, 0.08, 1.4, { m: 'metal' });
-  k.anchor('muzzle', 0, 0.2, 2.05);
+  k.rbox(0.36, 0.44, 1.15, 0.14, C.slate, 0, 0.24, -0.05, { seg: 3 });
+  k.rbox(0.32, 0.14, 0.62, 0.06, C.slateL, 0, 0.5, 0.02);
+  k.rbox(0.36, 0.28, 0.52, 0.12, C.slateD, 0, 0.14, 0.74, { seg: 3 });
+  barrel(k, 0.085, 0.7, 1.96, C.slateD, 0.24);
+  k.rbox(0.18, 0.08, 0.8, 0.03, C.slateL, 0, 0.36, 1.2, { m: 'metal' });
+  k.rbox(0.07, 0.26, 0.07, 0.03, C.slateD, 0, 0.44, 1.76);
+  k.rbox(0.07, 0.22, 0.07, 0.03, C.slateD, 0, 0.6, 0.62);
+  k.rbox(0.07, 0.07, 0.38, 0.03, C.slateD, 0, 0.72, 0.78, { rx: 0.1 });
+  k.rbox(0.44, 0.46, 0.5, 0.1, C.olive, -0.02, -0.28, 0.12, { seg: 3 });
+  k.rbox(0.45, 0.07, 0.51, 0.03, C.oliveD, -0.02, -0.1, 0.12);
+  for (let i = 0; i < 5; i++) k.cyl(0.04, 0.2, C.brass, -0.25, -0.04 + i * 0.07, 0.1, { axis: 'x', m: 'metal' });
+  grip(k, C.slateD, -0.42, -0.16, 0.46, 0.3, 0.24);
+  k.rbox(0.3, 0.46, 0.74, 0.14, C.slate, 0, 0.16, -0.95, { seg: 3 });
+  k.rbox(0.05, 0.05, 0.6, 0.02, C.steel, 0.09, 0.08, 1.42, { m: 'metal' });
+  k.rbox(0.05, 0.05, 0.6, 0.02, C.steel, -0.09, 0.08, 1.42, { m: 'metal' });
+  k.anchor('muzzle', 0, 0.24, 2.0);
 }
 
 function grenadelauncher(k) {
-  k.cyl(0.3, 0.56, P.olive, 0, 0.06, 0.16, { seg: 12 });
+  k.cyl(0.4, 0.6, C.olive, 0, 0.06, 0.16, { seg: 12 });
   for (let i = 0; i < 6; i++) {
     const a = (i / 6) * PI * 2 + PI / 2;
-    k.cyl(0.075, 0.02, P.black, Math.cos(a) * 0.18, 0.06 + Math.sin(a) * 0.18, 0.445);
+    k.cyl(0.1, 0.03, 0x1b1d24, Math.cos(a) * 0.24, 0.06 + Math.sin(a) * 0.24, 0.47);
     const b = a + PI / 6;
-    k.box(0.05, 0.05, 0.5, P.oliveD, Math.cos(b) * 0.29, 0.06 + Math.sin(b) * 0.29, 0.16, { rz: b });
+    k.rbox(0.08, 0.08, 0.56, 0.03, C.oliveD, Math.cos(b) * 0.39, 0.06 + Math.sin(b) * 0.39, 0.16, { rz: b });
   }
-  k.cyl(0.11, 0.78, P.dark, 0, 0.24, 0.8, { m: 'metal' });
-  k.cyl(0.13, 0.08, P.orange, 0, 0.24, 1.17);
-  k.box(0.12, 0.08, 1.35, P.black, 0, 0.42, 0.3);
-  k.rbox(0.18, 0.18, 0.2, 0.03, P.black, 0, 0.56, 0.2);
-  k.box(0.12, 0.1, 0.02, 0x6ff0ff, 0, 0.57, 0.305, { m: 'glow' });
-  k.rbox(0.2, 0.62, 0.1, 0.03, P.black, 0, 0.1, -0.17);
-  k.rbox(0.1, 0.36, 0.12, 0.04, P.black, 0, -0.08, 0.78, { rx: 0.1 });
-  k.rbox(0.14, 0.36, 0.2, 0.05, P.black, 0, -0.18, -0.38, { rx: 0.3 });
-  k.box(0.035, 0.035, 0.5, P.gun, 0.06, 0.12, -0.6, { m: 'metal' });
-  k.box(0.035, 0.035, 0.5, P.gun, -0.06, 0.12, -0.6, { m: 'metal' });
-  k.rbox(0.16, 0.32, 0.36, 0.05, P.black, 0, 0.08, -0.95);
-  k.anchor('muzzle', 0, 0.24, 1.22);
+  barrel(k, 0.15, 0.42, 1.2, C.slateD, 0.3, 0, C.orange);
+  k.rbox(0.16, 0.1, 1.4, 0.04, C.slateD, 0, 0.52, 0.3);
+  k.rbox(0.24, 0.24, 0.26, 0.07, C.slateD, 0, 0.7, 0.2, { seg: 3 });
+  k.rbox(0.16, 0.14, 0.03, 0.03, 0x6ff0ff, 0, 0.72, 0.34, { m: 'glow' });
+  k.rbox(0.28, 0.8, 0.14, 0.06, C.slateD, 0, 0.1, -0.2);
+  k.rbox(0.14, 0.44, 0.16, 0.06, C.slateD, 0, -0.14, 0.82, { rx: 0.1 });
+  grip(k, C.slateD, -0.44, -0.24, 0.46, 0.3, 0.22);
+  k.rbox(0.05, 0.05, 0.56, 0.02, C.steel, 0.08, 0.14, -0.62, { m: 'metal' });
+  k.rbox(0.05, 0.05, 0.56, 0.02, C.steel, -0.08, 0.14, -0.62, { m: 'metal' });
+  k.rbox(0.24, 0.4, 0.4, 0.1, C.olive, 0, 0.1, -0.98, { seg: 3 });
+  k.anchor('muzzle', 0, 0.3, 1.25);
 }
 
 function heavysniper(k) {
-  k.rbox(0.26, 0.24, 1.6, 0.04, P.dark, 0, 0.3, 0.35);
-  k.rbox(0.24, 0.26, 0.9, 0.04, P.gun, 0, 0.06, -0.1);
-  k.box(0.265, 0.06, 1.0, P.orange, 0, 0.3, 0.1);
-  k.cyl(0.07, 1.45, P.black, 0, 0.3, 1.8, { m: 'metal' });
-  k.rbox(0.28, 0.22, 0.34, 0.03, P.dark, 0, 0.3, 2.62);
-  k.box(0.29, 0.08, 0.06, P.black, 0, 0.3, 2.55);
-  k.box(0.29, 0.08, 0.06, P.black, 0, 0.3, 2.68);
-  k.cyl(0.1, 1.1, P.black, 0, 0.64, 0.25, { m: 'metal' });
-  k.cyl(0.1, 0.3, P.black, 0, 0.64, 0.94, { r2: 0.16, m: 'metal' });
-  k.cyl(0.12, 0.18, P.black, 0, 0.64, -0.38, { m: 'metal' });
-  k.cyl(0.15, 0.01, P.glass, 0, 0.64, 1.095, { m: 'glow' });
-  k.cyl(0.06, 0.14, P.dark, 0, 0.78, 0.25, { axis: 'y' });
-  k.box(0.08, 0.2, 0.1, P.black, 0, 0.47, -0.05);
-  k.box(0.08, 0.2, 0.1, P.black, 0, 0.47, 0.55);
-  k.box(0.18, 0.32, 0.36, P.black, 0, -0.18, 0.2);
-  k.rbox(0.16, 0.36, 0.22, 0.05, P.black, 0, -0.16, -0.4, { rx: 0.3 });
-  k.rbox(0.2, 0.42, 0.7, 0.06, P.dark, 0, 0.06, -0.95);
-  k.box(0.21, 0.46, 0.07, P.black, 0, 0.04, -1.32);
-  k.box(0.05, 0.4, 0.05, P.gun, 0, -0.3, -1.1, { m: 'metal' });
-  k.box(0.045, 0.7, 0.045, P.gun, 0.12, -0.1, 1.25, { rx: -0.35, rz: 0.3, m: 'metal' });
-  k.box(0.045, 0.7, 0.045, P.gun, -0.12, -0.1, 1.25, { rx: -0.35, rz: -0.3, m: 'metal' });
-  k.anchor('muzzle', 0, 0.3, 2.8);
+  k.rbox(0.36, 0.34, 1.7, 0.12, C.slate, 0, 0.34, 0.35, { seg: 3 });
+  k.rbox(0.34, 0.34, 0.95, 0.1, C.slateL, 0, 0.06, -0.1, { seg: 3 });
+  k.rbox(0.37, 0.1, 1.1, 0.04, C.orange, 0, 0.34, 0.1);
+  barrel(k, 0.11, 1.1, 2.5, C.slateD, 0.34);
+  k.rbox(0.38, 0.28, 0.4, 0.1, C.slateD, 0, 0.34, 2.64, { seg: 3 });
+  k.rbox(0.39, 0.1, 0.08, 0.03, C.orange, 0, 0.34, 2.56);
+  k.rbox(0.39, 0.1, 0.08, 0.03, C.orange, 0, 0.34, 2.72);
+  scope(k, 0.76, -0.3, 0.85, 0.15, C.slateD);
+  mount2(k, 0.5, 0.64, [-0.05, 0.55]);
+  k.rbox(0.26, 0.4, 0.42, 0.08, C.slateD, 0, -0.2, 0.2);
+  grip(k, C.slateD, -0.42, -0.2, 0.48, 0.3, 0.24);
+  k.rbox(0.3, 0.52, 0.74, 0.14, C.slate, 0, 0.08, -0.95, { seg: 3 });
+  k.rbox(0.32, 0.56, 0.1, 0.04, C.slateD, 0, 0.06, -1.34);
+  k.rbox(0.08, 0.46, 0.08, 0.03, C.steel, 0, -0.34, -1.1, { m: 'metal' });
+  k.rbox(0.07, 0.76, 0.07, 0.03, C.steel, 0.14, -0.12, 1.3, { rx: -0.35, rz: 0.3, m: 'metal' });
+  k.rbox(0.07, 0.76, 0.07, 0.03, C.steel, -0.14, -0.12, 1.3, { rx: -0.35, rz: -0.3, m: 'metal' });
+  k.anchor('muzzle', 0, 0.34, 2.86);
 }
 
 // ------------------------------------------------------------------ LEGENDARY
 function minigun(k) {
-  k.rbox(0.56, 0.56, 0.72, 0.08, P.gun, 0, 0.2, -0.56, { m: 'metal' });
-  k.box(0.58, 0.12, 0.3, P.dark, 0, 0.2, -0.56);
-  k.cyl(0.31, 0.3, P.black, 0, 0.2, -0.06, { m: 'metal', seg: 16 });
-  const s = k.sub('spin', 0, 0.2, 0);
+  k.rbox(0.74, 0.74, 0.8, 0.22, C.slateL, 0, 0.24, -0.6, { m: 'metal', seg: 3 });
+  k.rbox(0.76, 0.18, 0.4, 0.06, C.yellow, 0, 0.24, -0.6);
+  k.cyl(0.42, 0.32, C.slateD, 0, 0.24, -0.04, { m: 'metal', seg: 20 });
+  const s = k.sub('spin', 0, 0.24, 0);
   for (let i = 0; i < 6; i++) {
     const a = (i / 6) * PI * 2;
-    s.cyl(0.058, 2.0, P.dark, Math.cos(a) * 0.16, Math.sin(a) * 0.16, 1.05, { m: 'metal', seg: 10 });
+    s.cyl(0.085, 2.0, C.slate, Math.cos(a) * 0.21, Math.sin(a) * 0.21, 1.05, { m: 'metal', seg: 12 });
+    s.cyl(0.05, 0.03, 0x1b1d24, Math.cos(a) * 0.21, Math.sin(a) * 0.21, 2.06);
   }
-  s.cyl(0.07, 2.0, P.gun, 0, 0, 1.05, { m: 'metal' });
-  s.cyl(0.25, 0.08, P.black, 0, 0, 0.45, { seg: 16 });
-  s.cyl(0.25, 0.08, P.black, 0, 0, 1.3, { seg: 16 });
-  s.cyl(0.24, 0.06, P.gun, 0, 0, 1.98, { m: 'metal', seg: 16 });
-  k.cyl(0.045, 0.4, P.black, 0.2, 0.2, -1.05, { axis: 'y' });
-  k.cyl(0.045, 0.4, P.black, -0.2, 0.2, -1.05, { axis: 'y' });
-  k.box(0.44, 0.05, 0.05, P.black, 0, 0.4, -1.05);
-  k.box(0.05, 0.05, 0.16, P.black, 0.2, 0.4, -0.97);
-  k.box(0.05, 0.05, 0.16, P.black, -0.2, 0.4, -0.97);
-  k.box(0.06, 0.18, 0.06, P.black, 0, 0.56, -0.7);
-  k.box(0.06, 0.18, 0.06, P.black, 0, 0.56, -0.35);
-  k.box(0.06, 0.06, 0.41, P.black, 0, 0.66, -0.52);
+  s.cyl(0.1, 2.0, C.steel, 0, 0, 1.05, { m: 'metal' });
+  s.cyl(0.34, 0.12, C.slateD, 0, 0, 0.45, { seg: 20, m: 'metal' });
+  s.cyl(0.34, 0.12, C.slateD, 0, 0, 1.35, { seg: 20, m: 'metal' });
+  s.tor(0.3, 0.06, C.yellow, 0, 0, 1.98, { m: 'metal' });
+  for (const sx of [-1, 1]) k.cap(0.06, 0.34, C.slateD, sx * 0.28, 0.24, -1.12);
+  k.rbox(0.6, 0.08, 0.08, 0.03, C.slateD, 0, 0.5, -1.12);
+  k.rbox(0.08, 0.24, 0.08, 0.03, C.slateD, 0, 0.72, -0.76);
+  k.rbox(0.08, 0.24, 0.08, 0.03, C.slateD, 0, 0.72, -0.36);
+  k.rbox(0.08, 0.08, 0.52, 0.03, C.slateD, 0, 0.84, -0.56);
   for (let i = 0; i < 6; i++) {
     const t = i / 5;
-    k.box(0.12, 0.08, 0.12, P.brass, 0.34 + t * 0.26, 0.12 - t * 0.55, -0.45 + Math.sin(t * PI) * 0.12, { rz: -0.6 * t, m: 'metal' });
+    k.rbox(0.16, 0.1, 0.16, 0.04, C.brass, 0.44 + t * 0.26, 0.12 - t * 0.6, -0.45 + Math.sin(t * PI) * 0.14, { rz: -0.6 * t, m: 'metal' });
   }
-  k.rbox(0.44, 0.46, 0.56, 0.05, P.olive, 0.62, -0.62, -0.42);
-  k.box(0.45, 0.06, 0.57, P.oliveD, 0.62, -0.44, -0.42);
-  k.anchor('muzzle', 0, 0.2, 2.06);
+  k.rbox(0.56, 0.56, 0.68, 0.12, C.olive, 0.74, -0.74, -0.42, { seg: 3 });
+  k.rbox(0.57, 0.08, 0.69, 0.03, C.oliveD, 0.74, -0.52, -0.42);
+  k.anchor('muzzle', 0, 0.24, 2.08);
 }
 
 function bazooka(k) {
-  k.cyl(0.2, 2.8, P.olive, 0, 0.26, 0.2, { seg: 18 });
-  k.cyl(0.28, 0.34, P.oliveD, 0, 0.26, -1.34, { r2: 0.2, seg: 18 });
-  k.cyl(0.235, 0.14, P.oliveD, 0, 0.26, 1.54, { seg: 18 });
-  k.cyl(0.205, 0.12, P.yellow, 0, 0.26, 1.05, { seg: 18 });
-  k.cyl(0.21, 0.06, P.oliveD, 0, 0.26, 0.55, { seg: 18 });
-  k.cyl(0.21, 0.06, P.oliveD, 0, 0.26, -0.5, { seg: 18 });
-  k.cyl(0.15, 0.16, P.gun, 0, 0.26, 1.66, { m: 'metal' });
-  k.cone(0.15, 0.28, P.red, 0, 0.26, 1.88);
-  k.rbox(0.12, 0.36, 0.16, 0.04, P.woodD, 0, -0.06, 0.28, { rx: 0.2 });
-  k.rbox(0.12, 0.36, 0.16, 0.04, P.woodD, 0, -0.06, -0.3, { rx: 0.25 });
-  k.rbox(0.14, 0.18, 0.44, 0.04, P.wood, 0, 0.03, -0.78);
-  k.box(0.04, 0.22, 0.04, P.black, -0.22, 0.46, 0.85);
-  k.box(0.03, 0.14, 0.14, P.black, -0.22, 0.6, 0.85);
-  k.box(0.04, 0.16, 0.04, P.black, -0.22, 0.43, -0.2);
-  k.anchor('muzzle', 0, 0.26, 1.72);
+  k.cyl(0.28, 2.7, C.olive, 0, 0.3, 0.2, { seg: 20 });
+  k.cyl(0.38, 0.36, C.oliveD, 0, 0.3, -1.3, { r2: 0.28, seg: 20 });
+  k.tor(0.3, 0.07, C.oliveD, 0, 0.3, 1.52, { seg: 20 });
+  k.cyl(0.29, 0.16, C.yellow, 0, 0.3, 1.0, { seg: 20 });
+  k.cyl(0.29, 0.08, C.oliveD, 0, 0.3, 0.5, { seg: 20 });
+  k.cyl(0.29, 0.08, C.oliveD, 0, 0.3, -0.5, { seg: 20 });
+  k.cyl(0.2, 0.18, C.slateL, 0, 0.3, 1.62, { m: 'metal' });
+  k.cone(0.2, 0.36, C.red, 0, 0.3, 1.89, { seg: 16 });
+  k.rbox(0.18, 0.46, 0.22, 0.07, C.woodD, 0, -0.12, 0.3, { rx: 0.2 });
+  k.rbox(0.18, 0.46, 0.22, 0.07, C.woodD, 0, -0.12, -0.3, { rx: 0.25 });
+  k.rbox(0.2, 0.22, 0.5, 0.08, C.wood, 0, 0.02, -0.8);
+  k.rbox(0.06, 0.3, 0.06, 0.03, C.slateD, -0.3, 0.58, 0.86);
+  k.rbox(0.04, 0.2, 0.2, 0.03, C.slateD, -0.3, 0.76, 0.86);
+  k.anchor('muzzle', 0, 0.3, 1.8);
 }
 
 function rpg(k) {
-  k.cyl(0.11, 2.3, P.gun, 0, 0.22, -0.05, { m: 'metal', seg: 16 });
-  k.cyl(0.16, 0.72, P.wood, 0, 0.22, -0.1, { seg: 16 });
-  k.cyl(0.24, 0.42, P.gun, 0, 0.22, -1.38, { r2: 0.11, m: 'metal', seg: 16 });
-  k.cyl(0.07, 0.4, P.oliveD, 0, 0.22, 1.28);
+  k.cyl(0.15, 2.3, C.slateL, 0, 0.26, -0.05, { m: 'metal', seg: 16 });
+  k.cyl(0.21, 0.76, C.wood, 0, 0.26, -0.1, { seg: 16 });
+  k.cyl(0.32, 0.44, C.slateL, 0, 0.26, -1.38, { r2: 0.15, m: 'metal', seg: 16 });
+  k.cyl(0.09, 0.42, C.oliveD, 0, 0.26, 1.28);
   for (let i = 0; i < 4; i++) {
     const a = (i / 4) * PI * 2 + PI / 4;
-    k.box(0.02, 0.14, 0.26, P.oliveD, Math.cos(a) * 0.1, 0.22 + Math.sin(a) * 0.1, 1.3, { rz: a + PI / 2 });
+    k.rbox(0.03, 0.2, 0.3, 0.01, C.oliveD, Math.cos(a) * 0.14, 0.26 + Math.sin(a) * 0.14, 1.3, { rz: a + PI / 2 });
   }
-  k.cyl(0.1, 0.3, P.olive, 0, 0.22, 1.63, { r2: 0.26, seg: 16 });
-  k.cyl(0.26, 0.22, P.olive, 0, 0.22, 1.89, { seg: 16 });
-  k.cone(0.26, 0.5, P.olive, 0, 0.22, 2.25, { seg: 16 });
-  k.sph(0.05, P.gun, 0, 0.22, 2.5);
-  k.rbox(0.12, 0.34, 0.16, 0.04, P.black, 0, -0.06, 0.4, { rx: 0.15 });
-  k.rbox(0.12, 0.34, 0.16, 0.04, P.black, 0, -0.06, -0.62, { rx: 0.25 });
-  k.rbox(0.1, 0.16, 0.32, 0.03, P.black, -0.18, 0.34, 0.25);
-  k.cyl(0.05, 0.01, P.glass, -0.18, 0.36, 0.415, { m: 'glow' });
-  k.anchor('muzzle', 0, 0.22, 1.5);
+  k.cyl(0.12, 0.34, C.oliveL, 0, 0.26, 1.64, { r2: 0.34, seg: 18 });
+  k.cyl(0.34, 0.26, C.oliveL, 0, 0.26, 1.94, { seg: 18 });
+  k.cone(0.34, 0.6, C.oliveL, 0, 0.26, 2.37, { seg: 18 });
+  k.sph(0.07, C.red, 0, 0.26, 2.66);
+  k.rbox(0.16, 0.44, 0.22, 0.07, C.slateD, 0, -0.1, 0.4, { rx: 0.15 });
+  k.rbox(0.16, 0.44, 0.22, 0.07, C.slateD, 0, -0.1, -0.62, { rx: 0.25 });
+  k.rbox(0.14, 0.2, 0.36, 0.06, C.slateD, -0.24, 0.42, 0.25);
+  k.cyl(0.07, 0.02, C.lens, -0.24, 0.44, 0.44, { m: 'glow' });
+  k.anchor('muzzle', 0, 0.26, 1.6);
 }
 
 function flamethrower(k) {
-  k.rbox(0.26, 0.3, 0.95, 0.05, P.gun, 0, 0.16, -0.05, { m: 'metal' });
-  k.cyl(0.13, 0.75, P.black, 0, 0.19, 0.78, { seg: 14 });
-  for (let i = 0; i < 5; i++) k.cyl(0.135, 0.03, P.gun, 0, 0.19, 0.48 + i * 0.15, { m: 'metal', seg: 14 });
-  k.cyl(0.07, 0.4, P.dark, 0, 0.19, 1.3, { m: 'metal' });
-  k.cyl(0.1, 0.16, P.brass, 0, 0.19, 1.56, { r2: 0.065, m: 'metal' });
-  k.cyl(0.025, 0.25, P.dark, 0, 0.08, 1.48);
-  k.sph(0.055, 0x6fc8ff, 0, 0.08, 1.62, { m: 'glow' });
-  k.cyl(0.21, 0.82, P.red, 0, -0.26, -0.2, { seg: 16 });
-  k.sph(0.21, P.red, 0, -0.26, 0.21, { sz: 0.5 });
-  k.sph(0.21, P.red, 0, -0.26, -0.61, { sz: 0.5 });
-  k.cyl(0.215, 0.08, P.yellow, 0, -0.26, -0.35, { seg: 16 });
-  k.cyl(0.215, 0.08, P.black, 0, -0.26, -0.25, { seg: 16 });
-  k.cyl(0.215, 0.08, P.yellow, 0, -0.26, -0.15, { seg: 16 });
-  k.cyl(0.04, 0.14, P.silver, 0, -0.02, -0.4, { axis: 'y', m: 'metal' });
-  k.rbox(0.12, 0.34, 0.16, 0.04, P.black, 0, -0.1, 0.62, { rx: 0.1 });
-  k.rbox(0.14, 0.36, 0.2, 0.05, P.black, 0, -0.02, -0.74, { rx: 0.3 });
-  k.anchor('muzzle', 0, 0.19, 1.66);
+  k.rbox(0.36, 0.4, 1.0, 0.12, C.slateL, 0, 0.2, -0.05, { m: 'metal', seg: 3 });
+  k.cyl(0.18, 0.8, C.slateD, 0, 0.24, 0.8, { seg: 16 });
+  for (let i = 0; i < 5; i++) k.cyl(0.19, 0.05, C.orange, 0, 0.24, 0.48 + i * 0.16, { seg: 16 });
+  k.cyl(0.1, 0.44, C.slate, 0, 0.24, 1.36, { m: 'metal' });
+  k.cyl(0.14, 0.2, C.brass, 0, 0.24, 1.64, { r2: 0.09, m: 'metal' });
+  k.cyl(0.035, 0.3, C.slateD, 0, 0.1, 1.54);
+  k.sph(0.08, 0x6fc8ff, 0, 0.1, 1.72, { m: 'glow' });
+  k.cyl(0.3, 0.86, C.red, 0, -0.32, -0.2, { seg: 20 });
+  k.sph(0.3, C.red, 0, -0.32, 0.23, { sz: 0.5 });
+  k.sph(0.3, C.red, 0, -0.32, -0.63, { sz: 0.5 });
+  k.cyl(0.305, 0.1, C.yellow, 0, -0.32, -0.38, { seg: 20 });
+  k.cyl(0.305, 0.1, 0x2a2d36, 0, -0.32, -0.26, { seg: 20 });
+  k.cyl(0.305, 0.1, C.yellow, 0, -0.32, -0.14, { seg: 20 });
+  k.cyl(0.06, 0.16, C.silver, 0, 0.02, -0.4, { axis: 'y', m: 'metal' });
+  k.rbox(0.16, 0.44, 0.22, 0.07, C.slateD, 0, -0.12, 0.66, { rx: 0.1 });
+  k.rbox(0.18, 0.44, 0.24, 0.07, C.slateD, 0, -0.04, -0.82, { rx: 0.3 });
+  k.anchor('muzzle', 0, 0.24, 1.76);
 }
 
 // ------------------------------------------------------------------ MYTHIC
 function tesla(k) {
-  k.rbox(0.38, 0.42, 1.0, 0.1, P.dark, 0, 0.2, -0.35, { m: 'metal' });
-  k.box(0.39, 0.08, 0.8, P.brass, 0, 0.3, -0.35, { m: 'metal' });
-  k.cyl(0.07, 1.35, P.cyan, 0, 0.22, 0.8, { m: 'glow' });
-  for (let i = 0; i < 6; i++) k.tor(0.17, 0.045, P.copper, 0, 0.22, 0.25 + i * 0.2, { m: 'metal', seg: 18 });
+  k.rbox(0.5, 0.54, 1.05, 0.18, C.slate, 0, 0.24, -0.35, { m: 'metal', seg: 3 });
+  k.rbox(0.51, 0.12, 0.84, 0.05, C.brass, 0, 0.36, -0.35, { m: 'metal' });
+  k.cyl(0.1, 1.35, C.cyan, 0, 0.26, 0.8, { m: 'glow' });
+  for (let i = 0; i < 6; i++) k.tor(0.22, 0.06, C.copper, 0, 0.26, 0.25 + i * 0.2, { m: 'metal', seg: 20 });
   for (let i = 0; i < 3; i++) {
     const a = (i / 3) * PI * 2 + PI / 2;
-    k.box(0.035, 0.035, 1.2, P.brass, Math.cos(a) * 0.17, 0.22 + Math.sin(a) * 0.17, 0.75, { m: 'metal' });
+    k.rbox(0.05, 0.05, 1.2, 0.02, C.brass, Math.cos(a) * 0.22, 0.26 + Math.sin(a) * 0.22, 0.75, { m: 'metal' });
   }
-  k.sph(0.2, P.cyan, 0, 0.22, 1.58, { m: 'glow' });
+  k.sph(0.26, C.cyan, 0, 0.26, 1.62, { m: 'glow' });
   for (let i = 0; i < 3; i++) {
     const a = (i / 3) * PI * 2 + PI / 2;
-    k.box(0.05, 0.05, 0.42, P.brass, Math.cos(a) * 0.26, 0.22 + Math.sin(a) * 0.26, 1.5, { m: 'metal' });
-    k.sph(0.05, P.cyan, Math.cos(a) * 0.26, 0.22 + Math.sin(a) * 0.26, 1.72, { m: 'glow' });
+    k.rbox(0.07, 0.07, 0.46, 0.03, C.brass, Math.cos(a) * 0.33, 0.26 + Math.sin(a) * 0.33, 1.52, { m: 'metal' });
+    k.sph(0.07, C.cyan, Math.cos(a) * 0.33, 0.26 + Math.sin(a) * 0.33, 1.78, { m: 'glow' });
   }
-  k.cyl(0.1, 0.5, P.gun, 0.26, 0.2, -0.4, { m: 'metal' });
-  k.box(0.02, 0.1, 0.3, P.cyan, 0.36, 0.2, -0.4, { m: 'glow' });
-  k.cyl(0.1, 0.5, P.gun, -0.26, 0.2, -0.4, { m: 'metal' });
-  k.box(0.02, 0.1, 0.3, P.cyan, -0.36, 0.2, -0.4, { m: 'glow' });
-  k.rbox(0.14, 0.36, 0.2, 0.05, P.black, 0, -0.14, -0.55, { rx: 0.3 });
-  k.rbox(0.18, 0.36, 0.5, 0.06, P.dark, 0, 0.14, -1.1);
-  k.anchor('muzzle', 0, 0.22, 1.6);
+  for (const sx of [-1, 1]) {
+    k.cyl(0.14, 0.56, C.slateL, sx * 0.34, 0.22, -0.4, { m: 'metal' });
+    k.rbox(0.03, 0.14, 0.34, 0.02, C.cyan, sx * 0.48, 0.22, -0.4, { m: 'glow' });
+  }
+  grip(k, C.slateD, -0.58, -0.18, 0.46, 0.3, 0.24);
+  k.rbox(0.26, 0.44, 0.52, 0.12, C.slate, 0, 0.16, -1.12, { seg: 3 });
+  k.anchor('muzzle', 0, 0.26, 1.66);
 }
 
 function plasmagun(k) {
-  const body = 0x3b2a5e;
-  const bodyL = 0x5d44a0;
-  k.rbox(0.6, 0.58, 0.78, 0.12, body, 0, 0.2, -0.6, { m: 'metal' });
-  k.box(0.62, 0.1, 0.5, P.violet, 0, 0.2, -0.6, { m: 'glow' });
-  k.cyl(0.33, 0.3, bodyL, 0, 0.2, -0.08, { m: 'metal', seg: 16 });
-  const s = k.sub('spin', 0, 0.2, 0);
+  const body = 0x4a3478;
+  const bodyL = 0x6c50b8;
+  k.rbox(0.78, 0.76, 0.84, 0.24, body, 0, 0.24, -0.62, { m: 'metal', seg: 3 });
+  k.rbox(0.8, 0.14, 0.56, 0.05, C.violet, 0, 0.24, -0.62, { m: 'glow' });
+  k.cyl(0.44, 0.32, bodyL, 0, 0.24, -0.06, { m: 'metal', seg: 20 });
+  const s = k.sub('spin', 0, 0.24, 0);
   for (let i = 0; i < 6; i++) {
     const a = (i / 6) * PI * 2;
-    s.cyl(0.06, 1.9, P.dark, Math.cos(a) * 0.17, Math.sin(a) * 0.17, 1.0, { m: 'metal', seg: 10 });
-    s.box(0.035, 0.035, 1.7, 0xe07bff, Math.cos(a) * 0.235, Math.sin(a) * 0.235, 1.0, { m: 'glow', rz: a });
+    s.cyl(0.085, 1.9, C.slateD, Math.cos(a) * 0.22, Math.sin(a) * 0.22, 1.0, { m: 'metal', seg: 12 });
+    s.rbox(0.05, 0.05, 1.7, 0.02, 0xe07bff, Math.cos(a) * 0.3, Math.sin(a) * 0.3, 1.0, { m: 'glow', rz: a });
   }
-  s.cyl(0.08, 1.9, P.violet, 0, 0, 1.0, { m: 'glow' });
-  s.cyl(0.27, 0.1, bodyL, 0, 0, 0.4, { m: 'metal', seg: 16 });
-  s.cyl(0.27, 0.1, bodyL, 0, 0, 1.25, { m: 'metal', seg: 16 });
-  s.cyl(0.26, 0.08, P.violet, 0, 0, 1.92, { m: 'glow', seg: 16 });
-  k.cyl(0.14, 0.5, P.dark, 0, 0.62, -0.6, { m: 'metal' });
-  k.box(0.02, 0.12, 0.4, 0xff4df0, 0.145, 0.62, -0.6, { m: 'glow' });
-  k.box(0.02, 0.12, 0.4, 0xff4df0, -0.145, 0.62, -0.6, { m: 'glow' });
-  k.cyl(0.05, 0.42, P.black, 0.22, 0.2, -1.12, { axis: 'y' });
-  k.cyl(0.05, 0.42, P.black, -0.22, 0.2, -1.12, { axis: 'y' });
-  k.box(0.49, 0.05, 0.05, P.black, 0, 0.42, -1.12);
-  k.anchor('muzzle', 0, 0.2, 1.98);
+  s.cyl(0.11, 1.9, C.violet, 0, 0, 1.0, { m: 'glow' });
+  s.cyl(0.36, 0.12, bodyL, 0, 0, 0.4, { m: 'metal', seg: 20 });
+  s.cyl(0.36, 0.12, bodyL, 0, 0, 1.25, { m: 'metal', seg: 20 });
+  s.tor(0.3, 0.06, 0xff4df0, 0, 0, 1.92, { m: 'glow', seg: 20 });
+  k.cyl(0.18, 0.56, C.slateD, 0, 0.8, -0.62, { m: 'metal' });
+  k.rbox(0.03, 0.16, 0.44, 0.02, 0xff4df0, 0.19, 0.8, -0.62, { m: 'glow' });
+  k.rbox(0.03, 0.16, 0.44, 0.02, 0xff4df0, -0.19, 0.8, -0.62, { m: 'glow' });
+  for (const sx of [-1, 1]) k.cap(0.065, 0.36, C.slateD, sx * 0.3, 0.24, -1.16);
+  k.rbox(0.64, 0.08, 0.08, 0.03, C.slateD, 0, 0.52, -1.16);
+  k.anchor('muzzle', 0, 0.24, 2.0);
 }
 
 function railgun(k) {
-  const white = 0xdfe6ee;
-  k.rbox(0.48, 0.46, 1.1, 0.1, white, 0, 0.2, -0.4);
-  k.box(0.49, 0.06, 0.9, P.cyan, 0, 0.12, -0.4, { m: 'glow' });
-  k.box(0.07, 0.26, 2.4, P.dark, 0.15, 0.26, 0.95, { m: 'metal' });
-  k.box(0.07, 0.26, 2.4, P.dark, -0.15, 0.26, 0.95, { m: 'metal' });
-  k.box(0.08, 0.1, 2.3, P.cyan, 0, 0.26, 0.98, { m: 'glow' });
-  for (let i = 0; i < 4; i++) k.tor(0.27, 0.045, P.gun, 0, 0.26, 0.3 + i * 0.55, { m: 'metal', seg: 20 });
-  k.box(0.1, 0.3, 0.1, P.cyan, 0.15, 0.26, 2.17, { m: 'glow' });
-  k.box(0.1, 0.3, 0.1, P.cyan, -0.15, 0.26, 2.17, { m: 'glow' });
-  k.rbox(0.2, 0.18, 0.4, 0.04, P.dark, 0, 0.53, -0.35);
-  k.box(0.16, 0.12, 0.02, P.cyan, 0, 0.54, -0.145, { m: 'glow' });
-  k.rbox(0.15, 0.36, 0.2, 0.05, P.dark, 0, -0.14, -0.55, { rx: 0.3 });
-  k.rbox(0.22, 0.4, 0.55, 0.08, white, 0, 0.14, -1.2);
-  k.box(0.23, 0.05, 0.4, P.cyan, 0, 0.26, -1.2, { m: 'glow' });
-  k.anchor('muzzle', 0, 0.26, 2.2);
+  const white = 0xe8eef5;
+  k.rbox(0.62, 0.6, 1.15, 0.2, white, 0, 0.24, -0.4, { seg: 3 });
+  k.rbox(0.63, 0.08, 0.9, 0.04, C.cyan, 0, 0.14, -0.4, { m: 'glow' });
+  k.rbox(0.1, 0.34, 2.4, 0.04, C.slateD, 0.2, 0.3, 0.95, { m: 'metal' });
+  k.rbox(0.1, 0.34, 2.4, 0.04, C.slateD, -0.2, 0.3, 0.95, { m: 'metal' });
+  k.rbox(0.12, 0.14, 2.3, 0.04, C.cyan, 0, 0.3, 0.98, { m: 'glow' });
+  for (let i = 0; i < 4; i++) k.tor(0.34, 0.06, C.slateL, 0, 0.3, 0.3 + i * 0.55, { m: 'metal', seg: 20 });
+  k.rbox(0.14, 0.4, 0.14, 0.05, C.cyan, 0.2, 0.3, 2.18, { m: 'glow' });
+  k.rbox(0.14, 0.4, 0.14, 0.05, C.cyan, -0.2, 0.3, 2.18, { m: 'glow' });
+  k.rbox(0.28, 0.24, 0.46, 0.07, C.slateD, 0, 0.66, -0.35, { seg: 3 });
+  k.rbox(0.2, 0.16, 0.03, 0.03, C.cyan, 0, 0.68, -0.11, { m: 'glow' });
+  grip(k, C.slateD, -0.56, -0.18, 0.46, 0.3, 0.24);
+  k.rbox(0.3, 0.48, 0.58, 0.14, white, 0, 0.16, -1.2, { seg: 3 });
+  k.rbox(0.31, 0.07, 0.44, 0.03, C.cyan, 0, 0.3, -1.2, { m: 'glow' });
+  k.anchor('muzzle', 0, 0.3, 2.22);
 }
 
 // ------------------------------------------------------------------ SECRET
 function nuke(k) {
-  const tube = 0x3d4a2f;
-  k.cyl(0.34, 2.5, tube, 0, 0.32, 0.0, { seg: 20 });
-  k.cyl(0.42, 0.4, P.oliveD, 0, 0.32, -1.4, { r2: 0.34, seg: 20 });
-  for (let i = 0; i < 6; i++) k.cyl(0.345, 0.12, i % 2 ? P.black : P.yellow, 0, 0.32, -0.8 + i * 0.12, { seg: 20 });
-  k.cyl(0.37, 0.12, P.oliveD, 0, 0.32, 1.2, { seg: 20 });
-  k.sph(0.3, 0x9aa3ad, 0, 0.32, 1.52, { sz: 1.35, m: 'metal' });
-  k.cyl(0.305, 0.1, P.yellow, 0, 0.32, 1.5, { seg: 20 });
-  k.sph(0.08, P.red, 0, 0.32, 1.92);
-  k.box(0.14, 0.12, 1.6, P.black, 0, -0.08, 0.0);
-  k.rbox(0.14, 0.4, 0.2, 0.05, P.black, 0, -0.3, 0.45, { rx: 0.15 });
-  k.rbox(0.14, 0.4, 0.2, 0.05, P.black, 0, -0.3, -0.35, { rx: 0.25 });
-  k.rbox(0.24, 0.26, 0.4, 0.05, P.black, -0.36, 0.5, 0.2);
-  k.box(0.18, 0.16, 0.02, P.lime, -0.36, 0.52, 0.405, { m: 'glow' });
-  k.sph(0.06, P.lime, 0.12, 0.67, -0.3, { m: 'glow' });
-  k.sph(0.06, P.red, -0.02, 0.67, -0.3, { m: 'glow' });
-  k.cyl(0.14, 0.02, P.yellow, 0.345, 0.32, 0.4, { axis: 'x' });
-  k.cyl(0.04, 0.03, P.black, 0.35, 0.32, 0.4, { axis: 'x' });
-  k.anchor('muzzle', 0, 0.32, 1.9);
+  const tube = 0x4d5c38;
+  k.cyl(0.44, 2.5, tube, 0, 0.4, 0.0, { seg: 22 });
+  k.cyl(0.54, 0.44, C.oliveD, 0, 0.4, -1.4, { r2: 0.44, seg: 22 });
+  for (let i = 0; i < 6; i++) k.cyl(0.445, 0.13, i % 2 ? 0x2a2d36 : C.yellow, 0, 0.4, -0.8 + i * 0.13, { seg: 22 });
+  k.tor(0.44, 0.08, C.oliveD, 0, 0.4, 1.22, { seg: 22 });
+  k.sph(0.38, 0xa8b2bd, 0, 0.4, 1.56, { sz: 1.35, m: 'metal', seg: 20, segH: 14 });
+  k.cyl(0.39, 0.12, C.yellow, 0, 0.4, 1.54, { seg: 22 });
+  k.sph(0.1, C.red, 0, 0.4, 2.06, { m: 'glow' });
+  k.rbox(0.2, 0.16, 1.6, 0.05, C.slateD, 0, -0.08, 0.0);
+  k.rbox(0.18, 0.5, 0.26, 0.08, C.slateD, 0, -0.34, 0.45, { rx: 0.15 });
+  k.rbox(0.18, 0.5, 0.26, 0.08, C.slateD, 0, -0.34, -0.35, { rx: 0.25 });
+  k.rbox(0.3, 0.32, 0.46, 0.1, C.slateD, -0.46, 0.66, 0.2, { seg: 3 });
+  k.rbox(0.22, 0.2, 0.03, 0.04, C.lime, -0.46, 0.68, 0.44, { m: 'glow' });
+  k.sph(0.08, C.lime, 0.14, 0.86, -0.3, { m: 'glow' });
+  k.sph(0.08, C.red, -0.04, 0.86, -0.3, { m: 'glow' });
+  k.cyl(0.2, 0.03, C.yellow, 0.44, 0.4, 0.4, { axis: 'x' });
+  for (let i = 0; i < 3; i++) {
+    const a = (i / 3) * PI * 2 - PI / 2;
+    k.rbox(0.03, 0.1, 0.08, 0.02, 0x2a2d36, 0.46, 0.4 + Math.sin(a) * 0.1, 0.4 + Math.cos(a) * 0.1, { rx: -a });
+  }
+  k.anchor('muzzle', 0, 0.4, 2.0);
 }
 
 function blackhole(k) {
-  const body = 0x1c1233;
-  const bodyL = 0x35245e;
-  k.rbox(0.36, 0.38, 1.2, 0.12, body, 0, 0.2, -0.35, { m: 'metal' });
-  k.box(0.37, 0.05, 1.0, P.violet, 0, 0.3, -0.35, { m: 'glow' });
-  k.box(0.37, 0.05, 1.0, P.violet, 0, 0.1, -0.35, { m: 'glow' });
-  k.cyl(0.2, 0.3, bodyL, 0, 0.22, 0.32, { r2: 0.28, m: 'metal' });
-  k.sph(0.3, 0x05010c, 0, 0.22, 0.78, { seg: 18, segH: 12 });
-  k.tor(0.44, 0.045, 0xc58bff, 0, 0.22, 0.78, { m: 'glow', rx: 1.1, seg: 28 });
-  k.tor(0.38, 0.03, 0xff7bf3, 0, 0.22, 0.78, { m: 'glow', rx: -0.6, ry: 0.5, seg: 28 });
+  const body = 0x251844;
+  const bodyL = 0x46307a;
+  k.rbox(0.48, 0.5, 1.25, 0.2, body, 0, 0.24, -0.35, { m: 'metal', seg: 3 });
+  k.rbox(0.49, 0.07, 1.05, 0.03, C.violet, 0, 0.36, -0.35, { m: 'glow' });
+  k.rbox(0.49, 0.07, 1.05, 0.03, C.violet, 0, 0.12, -0.35, { m: 'glow' });
+  k.cyl(0.26, 0.34, bodyL, 0, 0.26, 0.34, { r2: 0.36, m: 'metal' });
+  k.sph(0.38, 0x07020f, 0, 0.26, 0.84, { seg: 20, segH: 14 });
+  k.tor(0.56, 0.06, 0xc58bff, 0, 0.26, 0.84, { m: 'glow', rx: 1.1, seg: 32 });
+  k.tor(0.48, 0.04, 0xff7bf3, 0, 0.26, 0.84, { m: 'glow', rx: -0.6, ry: 0.5, seg: 32 });
   for (let i = 0; i < 3; i++) {
     const a = (i / 3) * PI * 2 + PI / 2;
     const cx = Math.cos(a);
     const cy = Math.sin(a);
-    k.box(0.09, 0.09, 0.7, bodyL, cx * 0.42, 0.22 + cy * 0.42, 0.78, { m: 'metal', rx: cy * 0.25, ry: -cx * 0.25 });
-    k.sph(0.06, P.violet, cx * 0.34, 0.22 + cy * 0.34, 1.12, { m: 'glow' });
+    k.rbox(0.12, 0.12, 0.76, 0.05, bodyL, cx * 0.52, 0.26 + cy * 0.52, 0.84, { m: 'metal', rx: cy * 0.25, ry: -cx * 0.25 });
+    k.sph(0.08, C.violet, cx * 0.42, 0.26 + cy * 0.42, 1.22, { m: 'glow' });
   }
-  k.rbox(0.14, 0.36, 0.2, 0.05, P.black, 0, -0.14, -0.55, { rx: 0.3 });
-  k.rbox(0.2, 0.36, 0.5, 0.08, body, 0, 0.14, -1.15, { m: 'metal' });
-  k.anchor('muzzle', 0, 0.22, 1.15);
+  grip(k, C.slateD, -0.56, -0.18, 0.46, 0.3, 0.24);
+  k.rbox(0.28, 0.46, 0.56, 0.14, body, 0, 0.16, -1.15, { m: 'metal', seg: 3 });
+  k.anchor('muzzle', 0, 0.26, 1.24);
 }
 
 function unicorn(k) {
   const rb = [0xff4d4d, 0xff9f1a, 0xffe14d, 0x5ee65e, 0x4db8ff, 0xa66bff];
-  k.rbox(0.4, 0.42, 0.95, 0.16, P.white, 0, 0.22, -0.2);
-  k.rbox(0.32, 0.3, 0.42, 0.12, P.white, 0, 0.14, 0.42);
-  k.sph(0.035, 0xd65c98, 0.08, 0.14, 0.63);
-  k.sph(0.035, 0xd65c98, -0.08, 0.14, 0.63);
-  k.box(0.02, 0.12, 0.1, P.black, 0.205, 0.3, 0.12);
-  k.box(0.02, 0.12, 0.1, P.black, -0.205, 0.3, 0.12);
-  k.box(0.024, 0.04, 0.04, P.white, 0.208, 0.33, 0.14);
-  k.box(0.024, 0.04, 0.04, P.white, -0.208, 0.33, 0.14);
-  k.box(0.02, 0.06, 0.1, 0xff9ccd, 0.205, 0.18, 0.22);
-  k.box(0.02, 0.06, 0.1, 0xff9ccd, -0.205, 0.18, 0.22);
-  k.cone(0.07, 0.16, P.white, 0.12, 0.5, -0.05, { axis: 'y' });
-  k.cone(0.07, 0.16, P.white, -0.12, 0.5, -0.05, { axis: 'y' });
-  // horn = the barrel
-  const hx = 0;
-  const hy = 0.42;
-  const hz = 0.36;
+  k.rbox(0.52, 0.54, 1.0, 0.22, C.white, 0, 0.26, -0.2, { seg: 3 });
+  k.rbox(0.42, 0.4, 0.46, 0.18, C.white, 0, 0.18, 0.44, { seg: 3 });
+  k.sph(0.045, 0xd65c98, 0.1, 0.18, 0.67);
+  k.sph(0.045, 0xd65c98, -0.1, 0.18, 0.67);
+  for (const sx of [-1, 1]) {
+    k.sph(0.1, 0x2a1d3a, sx * 0.265, 0.38, 0.14, { sx: 0.35, sy: 1.2 });
+    k.sph(0.035, C.white, sx * 0.29, 0.42, 0.17, { m: 'glow' });
+    k.sph(0.07, 0xff9ccd, sx * 0.265, 0.22, 0.26, { sx: 0.3 });
+    k.cone(0.09, 0.2, C.white, sx * 0.15, 0.62, -0.08, { axis: 'y' });
+  }
+  const hy = 0.52;
+  const hz = 0.4;
   const tilt = 0.35;
   const dy = Math.sin(tilt);
   const dz = Math.cos(tilt);
-  k.cone(0.09, 0.8, 0xffe26a, hx, hy + dy * 0.4, hz + dz * 0.4, { rx: -tilt, m: 'metal' });
+  k.cone(0.12, 0.9, 0xffe26a, 0, hy + dy * 0.45, hz + dz * 0.45, { rx: -tilt, m: 'metal' });
   for (let i = 0; i < 4; i++) {
     const t = (i + 1) / 5;
-    const d = 0.8 * t * 0.85;
-    k.tor(0.09 * (1 - t) + 0.012, 0.016, P.pink, hx, hy + dy * d, hz + dz * d, { rx: -tilt, seg: 14 });
+    const d = 0.9 * t * 0.85;
+    k.tor(0.12 * (1 - t) + 0.015, 0.02, C.pink, 0, hy + dy * d, hz + dz * d, { rx: -tilt, seg: 14 });
   }
-  for (let i = 0; i < 6; i++) k.rbox(0.14, 0.16, 0.18, 0.05, rb[i], 0, 0.46 - i * 0.015, 0.1 - i * 0.15);
-  for (let i = 0; i < 6; i++) k.box(0.16, 0.06, 0.5, rb[i], 0, 0.36 - i * 0.06, -0.92);
-  k.rbox(0.15, 0.36, 0.2, 0.06, P.pink, 0, -0.12, -0.35, { rx: 0.3 });
-  k.anchor('muzzle', hx, hy + dy * 0.8, hz + dz * 0.8);
+  for (let i = 0; i < 6; i++) k.rbox(0.18, 0.2, 0.2, 0.08, rb[i], 0, 0.56 - i * 0.02, 0.08 - i * 0.16);
+  for (let i = 0; i < 6; i++) k.rbox(0.22, 0.08, 0.56, 0.03, rb[i], 0, 0.44 - i * 0.075, -0.95);
+  grip(k, C.pink, -0.35, -0.16, 0.46, 0.3, 0.24);
+  k.anchor('muzzle', 0, hy + dy * 0.9, hz + dz * 0.9);
 }
 
 const BUILDERS = {

@@ -5,13 +5,15 @@
 import { RARITIES, EPIC } from '../data/rarities.js';
 import { WEAPONS_BY_RARITY, WEAPON_BY_ID, baseDps } from '../data/weapons.js';
 import { UPGRADES_BY_ID } from '../data/upgrades.js';
-import { ENEMIES, ENEMY_IDS } from '../data/enemies.js';
+import { ENEMIES, ENEMY_IDS, enemyWeight } from '../data/enemies.js';
+import { zoneIndexForWave } from '../data/zones.js';
 import { weightedIndex } from '../util/math.js';
 
 export const BASE_SLOTS = 4;
 export const MAX_SLOTS = 32;
-export const MAX_GUN_LEVEL = 10;
+export const MAX_GUN_LEVEL = 20;
 export const PITY_EVERY = 30;
+export const PITY_LEGEND = 90;
 export const GOLD_CHANCE = 0.02;
 export const GOLD_MULT = 2;
 export const CRIT_CHANCE = 0.08;
@@ -24,8 +26,8 @@ export const ZOMBIE_BASE_DMG = 4;
 
 // ------------------------------------------------------------------ waves
 export const isBossWave = (w) => w % BOSS_EVERY === 0;
-export const hpMult = (w) => Math.pow(1.19, w - 1);
-export const rewardMult = (w) => Math.pow(1.11, w - 1);
+export const hpMult = (w) => Math.pow(1.175, w - 1);
+export const rewardMult = (w) => Math.pow(1.115, w - 1);
 export const dmgMult = (w) => Math.pow(1.07, w - 1);
 export const spawnPerSec = (w) => Math.min(3.4, 0.5 + 0.075 * (w - 1));
 export const killsNeeded = (w) => Math.min(60, 10 + Math.floor(w * 1.6));
@@ -40,14 +42,15 @@ export function zombieStats(type, wave) {
   };
 }
 
-export function pickEnemyType(wave, rng = Math.random) {
+export function pickEnemyType(wave, rng = Math.random, zone = null) {
+  const zi = zone ?? zoneIndexForWave(wave);
   const ids = [];
   const weights = [];
   for (const id of ENEMY_IDS) {
-    const e = ENEMIES[id];
-    if (e.minWave <= wave) {
+    const w = enemyWeight(id, wave, zi);
+    if (w > 0) {
       ids.push(id);
-      weights.push(e.weight(wave));
+      weights.push(w);
     }
   }
   return ids[weightedIndex(weights, rng)];
@@ -157,7 +160,8 @@ export function rollCrate(s, { luck = 1, minRarity = 0, rng = Math.random } = {}
   else if (s.opens === 2) rarity = 2; // and the third one even better
   else {
     const w = rarityWeights(crateLevel(s), luck);
-    const floor = Math.max(minRarity, s.pity >= PITY_EVERY - 1 ? EPIC : 0);
+    let floor = Math.max(minRarity, s.pity >= PITY_EVERY - 1 ? EPIC : 0);
+    if ((s.pityL || 0) >= PITY_LEGEND - 1) floor = Math.max(floor, EPIC + 1);
     for (let i = 0; i < floor; i++) w[i] = 0;
     rarity = weightedIndex(w, rng);
   }
@@ -174,22 +178,34 @@ export function scrapValue(s, rarity) {
 // ------------------------------------------------------------------ guns
 export const gunLevelMult = (l) => 1 + 0.5 * (l - 1);
 
-/** DPS of one gun without global upgrades. */
-export function gunPower(gun) {
+/** Weapon mastery: every duplicate unboxed adds a copy; levels at 1,3,6,10,15... copies. */
+export const masteryLevel = (copies) => Math.floor((Math.sqrt(8 * (copies || 0) + 1) - 1) / 2);
+export const masteryNext = (lvl) => ((lvl + 1) * (lvl + 2)) / 2;
+export const masteryMult = (lvl) => 1 + 0.25 * lvl;
+export const masteryOf = (s, id) => masteryLevel(s && s.mastery ? s.mastery[id] : 0);
+
+/** DPS of one gun without global upgrades (includes weapon mastery when state is given). */
+export function gunPower(gun, s = null) {
   if (!gun) return 0;
   const w = WEAPON_BY_ID[gun.t];
-  return baseDps(w) * gunLevelMult(gun.l) * (gun.g ? GOLD_MULT : 1);
+  return baseDps(w) * gunLevelMult(gun.l) * (gun.g ? GOLD_MULT : 1) * masteryMult(masteryOf(s, gun.t));
 }
 
 export function gunDps(gun, s) {
-  return gunPower(gun) * dmgMultOf(s) * rateMultOf(s);
+  return gunPower(gun, s) * dmgMultOf(s) * rateMultOf(s);
 }
 
 export function totalDps(s) {
   let d = 0;
   const n = slotCount(s);
-  for (let i = 0; i < n; i++) d += gunPower(s.guns[i]);
+  for (let i = 0; i < n; i++) d += gunPower(s.guns[i], s);
   return d * dmgMultOf(s) * rateMultOf(s);
+}
+
+/** Coins to level a gun up by one (walk up to it on the wall). */
+export function gunUpgradeCost(g) {
+  const w = WEAPON_BY_ID[g.t];
+  return Math.ceil(15 * Math.pow(3.2, w.rarity) * Math.pow(1.7, g.l - 1));
 }
 
 /**
@@ -197,18 +213,18 @@ export function totalDps(s) {
  *  place   - goes to a free slot
  *  levelup - merges into a gun of the same type (+1 level, gold spreads)
  *  replace - kicks out the weakest gun
- *  scrap   - not useful, turned into coins
+ *  mastery - the army is stronger already: +1 mastery copy (all guns of that type get stronger)
  * Picks whatever raises total DPS the most.
  */
 export function decidePlacement(s, gun) {
   const n = slotCount(s);
   for (let i = 0; i < n; i++) if (!s.guns[i]) return { kind: 'place', slot: i };
 
-  const newPow = gunPower(gun);
+  const newPow = gunPower(gun, s);
   let weakest = -1;
   let weakPow = Infinity;
   for (let i = 0; i < n; i++) {
-    const p = gunPower(s.guns[i]);
+    const p = gunPower(s.guns[i], s);
     if (p < weakPow) {
       weakPow = p;
       weakest = i;
@@ -222,7 +238,7 @@ export function decidePlacement(s, gun) {
     const g = s.guns[i];
     if (g.t !== gun.t || g.l >= MAX_GUN_LEVEL) continue;
     const up = { t: g.t, l: g.l + 1, g: g.g || gun.g };
-    const gain = gunPower(up) - gunPower(g);
+    const gain = gunPower(up, s) - gunPower(g, s);
     if (gain > gainLevel) {
       gainLevel = gain;
       lvlSlot = i;
@@ -231,7 +247,7 @@ export function decidePlacement(s, gun) {
 
   if (lvlSlot >= 0 && gainLevel >= gainReplace) return { kind: 'levelup', slot: lvlSlot };
   if (gainReplace > 0) return { kind: 'replace', slot: weakest };
-  return { kind: 'scrap' };
+  return { kind: 'mastery' };
 }
 
 // ------------------------------------------------------------------ offline

@@ -13,6 +13,7 @@ export function defaultSettings() {
     dmgNumbers: true,
     shake: true,
     autoContinue: true,
+    flashes: true,
   };
 }
 
@@ -31,7 +32,10 @@ export function defaultState() {
     guns: [{ t: 'pistol', l: 1, g: 0 }],
     seen: { pistol: 1 },
     viewed: { pistol: 1 },
-    stats: { kills: 0, bosses: 0, crates: 0, time: 0, earned: 0, breaches: 0 },
+    stats: { kills: 0, bosses: 0, crates: 0, time: 0, earned: 0, breaches: 0, bossOpened: 0 },
+    mastery: {},
+    hints: {},
+    pityL: 0,
     income: 0,
     last: Date.now(),
     boosts: { luck: 0, coins: 0 },
@@ -61,6 +65,8 @@ export function loadState() {
     merged.boostCd = { ...base.boostCd, ...(s.boostCd || {}) };
     merged.settings = { ...base.settings, ...(s.settings || {}) };
     merged.seen = { ...(s.seen || base.seen) };
+    merged.mastery = { ...(s.mastery || {}) };
+    merged.hints = { ...(s.hints || {}) };
     merged.viewed = { ...(s.viewed || base.viewed) };
     merged.guns = Array.isArray(s.guns) ? s.guns.map((g) => (g && g.t ? { t: g.t, l: g.l || 1, g: g.g ? 1 : 0 } : null)) : base.guns;
     for (const k of ['coins', 'wave', 'bestWave', 'opens', 'pity', 'income']) {

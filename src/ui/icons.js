@@ -28,6 +28,19 @@ export const ICONS = {
   arrowDown: `<svg viewBox="0 0 64 64"><path d="M32 60L6 30h16V4h20v26h16z" fill="#ffd23f" ${S}/></svg>`,
 };
 
+let factory = null;
+/** 3D rendered icons (see icons3d.js) replace the flat SVGs once the renderer exists. */
+export function setIconFactory(f) {
+  factory = f;
+}
+const THREE_D = new Set(['coin', 'bolt', 'fire', 'shield', 'clover', 'vault', 'slot', 'up', 'star', 'gear', 'skull', 'clock', 'music', 'sound', 'lock', 'trophy', 'arrowDown', 'play', 'gun', 'crate']);
+
+export function iconUrl(name) {
+  return factory && THREE_D.has(name) ? factory.get(name) : '';
+}
+
 export function icon(name, cls = '') {
+  const url = iconUrl(name);
+  if (url) return `<span class="ic ic3d ${cls}"><img src="${url}" alt="" draggable="false"></span>`;
   return `<span class="ic ${cls}">${ICONS[name] || ''}</span>`;
 }

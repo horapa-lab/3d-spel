@@ -52,7 +52,8 @@ async function boot() {
     /* fonts are optional */
   }
   const game = new Game(document.getElementById('app'));
-  window.__game = game;
+  // test hook only on local dev servers
+  if (/^(localhost|127\.0\.0\.1)$/.test(location.hostname)) window.__game = game;
   try {
     await game.init((p) => setProgress(0.1 + p * 0.9));
   } catch (e) {

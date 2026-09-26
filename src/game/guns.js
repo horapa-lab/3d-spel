@@ -3,6 +3,7 @@
 import * as THREE from 'three';
 import { createGunModel } from '../gfx/gunModels.js';
 import { buildMount } from '../gfx/props.js';
+import { Pad } from './pad.js';
 import { WEAPON_BY_ID } from '../data/weapons.js';
 import { RARITIES } from '../data/rarities.js';
 import * as E from '../core/economy.js';
@@ -10,13 +11,12 @@ import { angleDiff, rand, easeOutElastic } from '../util/math.js';
 import { SLOTS } from './layout.js';
 
 const _v = new THREE.Vector3();
-const MOUNT_H = 0.86;
-const GUN_SCALE = 1.55; // guns are chunky toys, bigger than real life
+const GUN_SCALE = 1.6; // guns are chunky toys, bigger than real life
 
 export class Guns {
   constructor(game) {
     this.game = game;
-    this.mountTmpl = buildMount();
+    this.mountTmpl = { low: buildMount(1.0), high: buildMount(2.1) };
     const ringGeo = new THREE.RingGeometry(0.62, 0.78, 32);
     ringGeo.rotateX(-Math.PI / 2);
     this.ringGeo = ringGeo;
@@ -29,6 +29,48 @@ export class Guns {
       };
     });
     this.hold = -1; // slot whose new gun is still flying in from the crate
+    this.colliders = [];
+    // "stand here to upgrade this gun" pads + one "build next slot" pad
+    this.pads = this.slots.map((slot) => {
+      const pad = new Pad(game, {
+        x: slot.padX, z: slot.padZ, r: 0.72, color: '#3fa9ff', icon: 'up', fill: 0.6,
+        canActivate: () => {
+          const g = game.state.guns[slot.i];
+          if (!g || this.hold === slot.i || g.l >= E.MAX_GUN_LEVEL) return false;
+          return game.canAfford(E.gunUpgradeCost(g)) ? true : 'poor';
+        },
+        onActivate: () => game.upgradeGun(slot.i),
+        onDenied: () => game.ui.gunPadDenied(slot.i),
+      });
+      pad.setVisible(false);
+      return pad;
+    });
+    this.slotPad = new Pad(game, {
+      x: 0, z: 0, r: 1.0, color: '#4cd964', icon: 'plus', fill: 0.7,
+      canActivate: () => {
+        const s = game.state;
+        if (E.isMaxed(s, 'slots')) return false;
+        return game.canAfford(E.upgradeCost('slots', E.upgradeLevel(s, 'slots'))) ? true : 'poor';
+      },
+      onActivate: () => game.buyUpgrade('slots', 1),
+      onDenied: () => game.ui.labels.deny('slot'),
+    });
+  }
+
+  updatePads(dt) {
+    const s = this.game.state;
+    const n = E.slotCount(s);
+    for (let i = 0; i < this.pads.length; i++) {
+      const on = i < n && !!s.guns[i];
+      if (this.pads[i].enabled !== on) this.pads[i].setVisible(on);
+      if (on) this.pads[i].update(dt);
+    }
+    if (n < E.MAX_SLOTS) {
+      const sl = this.slots[n];
+      if (this.slotPad.x !== sl.x || this.slotPad.z !== sl.z) this.slotPad.setPos(sl.x, sl.z);
+      if (this.slotPad.enabled === false) this.slotPad.setVisible(true);
+      this.slotPad.update(dt);
+    } else if (this.slotPad.enabled !== false) this.slotPad.setVisible(false);
   }
 
   /** Make sure mounts/models match the saved state. */
@@ -50,20 +92,21 @@ export class Guns {
       if (slot.root && key !== slot.key) this._setModel(slot, g);
       slot.data = g || null;
     }
+    this.colliders = this.slots.filter((sl) => sl.root).map((sl) => ({ x: sl.x, z: sl.z, r: sl.mountH > 1.5 ? 0.95 : 0.7 }));
     this.refreshStats();
   }
 
   _buildMount(slot) {
     const root = new THREE.Group();
     root.position.set(slot.x, slot.y, slot.z);
-    const mount = this.mountTmpl.clone();
+    const mount = (slot.mountH > 1.5 ? this.mountTmpl.high : this.mountTmpl.low).clone();
     root.add(mount);
     const ring = new THREE.Mesh(this.ringGeo, new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.9, toneMapped: false }));
-    ring.position.y = 0.18;
+    ring.position.y = slot.mountH > 1.5 ? slot.mountH - 0.72 : 0.22;
     ring.visible = false;
     root.add(ring);
     const yawNode = new THREE.Group();
-    yawNode.position.y = MOUNT_H;
+    yawNode.position.y = slot.mountH;
     root.add(yawNode);
     this.game.scene.add(root);
     slot.root = root;
@@ -180,7 +223,7 @@ export class Guns {
         slot.yaw += Math.abs(d) < turn ? d : Math.sign(d) * turn;
         aimed = Math.abs(angleDiff(slot.yaw, want)) < 0.3;
         const dist = Math.hypot(t.x - slot.x, t.z - slot.z);
-        slot.pitch = Math.atan2(slot.y + MOUNT_H + 0.3 - zs.aimY(t), dist) * 0.8;
+        slot.pitch = Math.atan2(slot.y + slot.mountH + 0.3 - zs.aimY(t), dist) * 0.8;
       } else {
         const idle = slot.restYaw + Math.sin(game.time * 0.6 + slot.i) * 0.15;
         slot.yaw += angleDiff(slot.yaw, idle) * Math.min(1, dt * 2);
@@ -344,7 +387,7 @@ export class Guns {
     let bd = maxDist * maxDist;
     for (const slot of this.slots) {
       if (!slot.root || !slot.data) continue;
-      _v.set(slot.x, slot.y + MOUNT_H + 0.3, slot.z).project(camera);
+      _v.set(slot.x, slot.y + slot.mountH + 0.3, slot.z).project(camera);
       const px = (_v.x * 0.5 + 0.5) * w;
       const py = (-_v.y * 0.5 + 0.5) * h;
       const d = (px - sx) ** 2 + (py - sy) ** 2;

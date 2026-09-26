@@ -1,52 +1,73 @@
-// Monster types. hp / reward / dmg are multipliers on top of the wave scaling.
-// `shape` tweaks the blocky rig: s = overall scale, w = torso/arm width factor.
+// Monster roster. hp / reward / dmg are multipliers on top of the wave scaling.
+// rig: humanoid | blob | ghost.  zw = spawn weight per zone (desert, canyon,
+// snow, toxic, volcano, moon).  s = model scale.
 
 export const ENEMIES = {
-  walker: {
-    name: 'Walker', hp: 1, speed: 2.2, reward: 1, dmg: 1, minWave: 1,
-    s: 1, w: 1, skin: 0x8fcb4a, shirt: 0xe8688a, pants: 0x3c4a66, acc: null,
-    weight: () => 10,
+  zombie: {
+    name: 'Zombie', rig: 'humanoid', hp: 1, speed: 2.2, reward: 1, dmg: 1, s: 1, minWave: 1,
+    zw: [10, 5, 4, 6, 2, 2], goo: 0x8fd45a,
   },
   runner: {
-    name: 'Runner', hp: 0.55, speed: 4.3, reward: 0.9, dmg: 0.8, minWave: 3,
-    s: 0.9, w: 0.82, skin: 0xa8d85c, shirt: 0xff9f43, pants: 0x6d4c41, acc: null,
-    weight: (w) => 3 + w * 0.08,
-  },
-  soldier: {
-    name: 'Soldier', hp: 2.6, speed: 2.0, reward: 2, dmg: 1.5, minWave: 6,
-    s: 1.05, w: 1.05, skin: 0x7bb342, shirt: 0x6e7f3a, pants: 0x4a5530, acc: 'helmet',
-    weight: (w) => 2 + w * 0.08,
+    name: 'Runner', rig: 'humanoid', hp: 0.55, speed: 4.3, reward: 0.9, dmg: 0.8, s: 0.9, minWave: 3,
+    zw: [4, 3, 2, 4, 1, 1], goo: 0x9ad65a,
   },
   skeleton: {
-    name: 'Skeleton', hp: 1.3, speed: 3.2, reward: 1.5, dmg: 1, minWave: 9,
-    s: 1, w: 0.85, skin: 0xf2eee2, shirt: 0xd9d2bf, pants: 0xbdb5a0, acc: null, bony: true,
-    weight: () => 2.5,
+    name: 'Skeleton', rig: 'humanoid', hp: 1.3, speed: 3.1, reward: 1.5, dmg: 1, s: 1, minWave: 6,
+    zw: [3, 3, 4, 1, 4, 1], goo: 0xf2eee2,
   },
-  brute: {
-    name: 'Brute', hp: 9, speed: 1.5, reward: 6, dmg: 4, minWave: 12,
-    s: 1.55, w: 1.3, skin: 0x6fa33a, shirt: 0x6fa33a, pants: 0x5b3a29, acc: 'pads',
-    weight: (w) => 0.8 + w * 0.03,
+  mummy: {
+    name: 'Mummy', rig: 'humanoid', hp: 2.4, speed: 1.8, reward: 2, dmg: 1.4, s: 1.05, minWave: 8,
+    zw: [3, 1, 0.5, 3, 1, 0.5], goo: 0xe9dfc2,
+  },
+  goblin: {
+    name: 'Goblin', rig: 'humanoid', hp: 0.8, speed: 3.9, reward: 1.3, dmg: 1, s: 0.85, minWave: 4,
+    zw: [2, 8, 3, 1, 3, 1], goo: 0xb5dc4a,
+  },
+  orc: {
+    name: 'Orc Brute', rig: 'humanoid', hp: 8, speed: 1.5, reward: 6, dmg: 4, s: 1.45, minWave: 10,
+    zw: [0.7, 4, 1, 1, 3, 1], goo: 0x6f9f40,
+  },
+  yeti: {
+    name: 'Yeti', rig: 'humanoid', hp: 6, speed: 1.9, reward: 5, dmg: 3, s: 1.4, minWave: 12,
+    zw: [0, 0, 5, 0, 0, 1], goo: 0xdff0ff,
+  },
+  slime: {
+    name: 'Slime', rig: 'blob', hp: 1.6, speed: 2.4, reward: 1.4, dmg: 1.2, s: 1, minWave: 5,
+    zw: [2, 1, 1, 8, 3, 4], goo: 0x6fe06f,
+  },
+  ghost: {
+    name: 'Ghost', rig: 'ghost', hp: 1.1, speed: 3.0, reward: 1.6, dmg: 1, s: 1, minWave: 7,
+    zw: [1.5, 1, 3, 4, 1, 4], goo: 0xeaf2ff,
   },
   imp: {
-    name: 'Imp', hp: 2.2, speed: 3.7, reward: 2.5, dmg: 1.5, minWave: 16,
-    s: 0.95, w: 0.9, skin: 0xe0473c, shirt: 0x3a1e1e, pants: 0x2a1a1a, acc: 'horns',
-    weight: () => 2.5,
+    name: 'Imp', rig: 'humanoid', hp: 2.2, speed: 3.6, reward: 2.5, dmg: 1.5, s: 0.95, minWave: 9,
+    zw: [0, 1, 0, 1, 8, 2], goo: 0xff6a4a,
   },
-  boss: {
-    name: 'Zombie King', hp: 70, speed: 1.05, reward: 45, dmg: 22, minWave: 999,
-    s: 3.1, w: 1.35, skin: 0x7cb342, shirt: 0x7cb342, pants: 0x4e342e, acc: 'boss', boss: true,
-    weight: () => 0,
+  robot: {
+    name: 'Robot', rig: 'humanoid', hp: 3, speed: 2.4, reward: 3, dmg: 2, s: 1.05, minWave: 12,
+    zw: [0, 0, 0, 0, 1, 8], goo: 0x9fb4cc,
   },
+
+  // bosses (one per zone, x3 size)
+  boss_zombie: { name: 'Zombie King', rig: 'humanoid', base: 'zombie', hp: 70, speed: 1.05, reward: 45, dmg: 22, s: 3.1, boss: true, goo: 0x8fd45a },
+  boss_orc: { name: 'Orc Warlord', rig: 'humanoid', base: 'orc', hp: 70, speed: 1.0, reward: 45, dmg: 22, s: 2.3, boss: true, goo: 0x6f9f40 },
+  boss_yeti: { name: 'Frost Giant', rig: 'humanoid', base: 'yeti', hp: 70, speed: 1.0, reward: 45, dmg: 22, s: 2.4, boss: true, goo: 0xdff0ff },
+  boss_slime: { name: 'Slime King', rig: 'blob', base: 'slime', hp: 70, speed: 1.1, reward: 45, dmg: 22, s: 3.2, boss: true, goo: 0x6fe06f },
+  boss_imp: { name: 'Demon Lord', rig: 'humanoid', base: 'imp', hp: 70, speed: 1.05, reward: 45, dmg: 22, s: 3.0, boss: true, goo: 0xff6a4a },
+  boss_robot: { name: 'Mega Mech', rig: 'humanoid', base: 'robot', hp: 70, speed: 1.0, reward: 45, dmg: 22, s: 2.9, boss: true, goo: 0x9fb4cc },
 };
 
 export const ENEMY_IDS = Object.keys(ENEMIES).filter((k) => !ENEMIES[k].boss);
+export const BOSS_BY_ZONE = ['boss_zombie', 'boss_orc', 'boss_yeti', 'boss_slime', 'boss_imp', 'boss_robot'];
+export const ALL_ENEMY_IDS = Object.keys(ENEMIES);
 
-/** Boss look + name changes with the zone for a bit of variety. */
-export const BOSS_VARIANTS = [
-  { name: 'Zombie King', skin: 0x7cb342, pants: 0x4e342e },
-  { name: 'Canyon Crusher', skin: 0xb5733f, pants: 0x3b2618 },
-  { name: 'Frost Giant', skin: 0x9fd8ff, pants: 0x34495e },
-  { name: 'Toxic Titan', skin: 0x9bff3a, pants: 0x4a148c },
-  { name: 'Magma Lord', skin: 0xff6a2b, pants: 0x2b1a14 },
-  { name: 'Moon Mutant', skin: 0xc7b8ff, pants: 0x263238 },
-];
+/** Spawn weight of an enemy type at a wave (zone themed rosters). */
+export function enemyWeight(id, wave, zoneIndex) {
+  const e = ENEMIES[id];
+  if (e.boss || wave < e.minWave) return 0;
+  const zi = zoneIndex % 6;
+  let w = e.zw[zi];
+  // after the first lap every monster can show up everywhere
+  if (zoneIndex >= 6) w = Math.max(w, 1.2);
+  return w;
+}

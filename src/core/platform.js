@@ -77,8 +77,10 @@ export const Platform = {
     this.listeners[evt].push(fn);
   },
   _emit(evt, v) {
+    if (evt === 'mute') this.muted = !!v;
     for (const fn of this.listeners[evt]) fn(v);
   },
+  muted: false,
 
   get hasAds() {
     return !!this.sdk;
@@ -120,6 +122,7 @@ export const Platform = {
         resolve(ok);
       };
       try {
+        setTimeout(() => finish(false), 45000); // never hang the game if the SDK stays silent
         this.sdk.ad.requestAd('rewarded', {
           adStarted: () => {
             this.adPlaying = true;

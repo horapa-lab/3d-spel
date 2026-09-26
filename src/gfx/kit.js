@@ -49,10 +49,13 @@ export class Kit {
   }
 
   _add(geo, color, o, axisMat) {
-    let g = geo;
-    if (g.index) {
-      g = geo.toNonIndexed();
-      geo.dispose();
+    // keep everything indexed (4x fewer vertices than non-indexed for rounded shapes)
+    const g = geo;
+    if (!g.index) {
+      const n = g.attributes.position.count;
+      const idx = new (n > 65535 ? Uint32Array : Uint16Array)(n);
+      for (let i = 0; i < n; i++) idx[i] = i;
+      g.setIndex(new THREE.BufferAttribute(idx, 1));
     }
     for (const name of Object.keys(g.attributes)) {
       if (name !== 'position' && name !== 'normal') g.deleteAttribute(name);
@@ -102,6 +105,13 @@ export class Kit {
   cone(r, len, c, x = 0, y = 0, z = 0, o = {}) {
     const g = new THREE.ConeGeometry(r, len, o.seg || 14);
     const axis = o.axis || 'z';
+    return this._add(g, c, { ...o, x, y, z }, axis === 'z' ? AXIS_Z : axis === 'x' ? AXIS_X : null);
+  }
+
+  /** Capsule along Y (default) or o.axis. len = straight part length. */
+  cap(r, len, c, x = 0, y = 0, z = 0, o = {}) {
+    const g = new THREE.CapsuleGeometry(r, len, o.capSeg || 4, o.seg || 12, 1);
+    const axis = o.axis || 'y';
     return this._add(g, c, { ...o, x, y, z }, axis === 'z' ? AXIS_Z : axis === 'x' ? AXIS_X : null);
   }
 

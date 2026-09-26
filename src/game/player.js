@@ -2,7 +2,7 @@
 
 import * as THREE from 'three';
 import { buildPlayerModel } from '../gfx/characters.js';
-import { angleDiff, clamp, damp } from '../util/math.js';
+import { angleDiff, damp } from '../util/math.js';
 import * as L from './layout.js';
 
 const SPEED = 8.5;
@@ -10,7 +10,7 @@ const RADIUS = 0.45;
 
 // Solid things in the plaza (axis aligned boxes: cx, cz, half x, half z)
 const OBSTACLES = [
-  { x: L.CRATE_POS.x, z: L.CRATE_POS.z, hx: 1.75, hz: 0.95 },
+  { x: L.CRATE_POS.x, z: L.CRATE_POS.z, hx: 2.3, hz: 1.2 },
   { x: L.LUCK_POS.x, z: L.LUCK_POS.z, hx: 0.8, hz: 0.6 },
   { x: L.VAULT_POS.x, z: L.VAULT_POS.z, hx: 0.8, hz: 0.7 },
 ];
@@ -32,6 +32,9 @@ export class Player {
     this.onArrive = null;
     this.moving = false;
     this.stepT = 0;
+    this.lastX = L.PLAYER_START.x;
+    this.lastZ = L.PLAYER_START.z;
+    this.stuckT = 0;
     // ground marker for click-to-move
     const ring = new THREE.Mesh(
       new THREE.RingGeometry(0.35, 0.5, 24),
@@ -51,10 +54,8 @@ export class Player {
   }
 
   walkTo(x, z, onArrive = null) {
-    this.target = {
-      x: clamp(x, L.PLAZA.minX, L.PLAZA.maxX),
-      z: clamp(z, L.PLAZA.minZ, L.PLAZA.maxZ),
-    };
+    const [cx, cz] = L.clampWalkable(x, z);
+    this.target = { x: cx, z: cz };
     this.onArrive = onArrive;
     this.marker.visible = true;
     this.marker.position.set(this.target.x, 0.06, this.target.z);
@@ -74,7 +75,7 @@ export class Player {
       const dx = this.target.x - this.x;
       const dz = this.target.z - this.z;
       const d = Math.hypot(dx, dz);
-      if (d < 0.25) {
+      if (d < 0.25 || (this.stuckT > 0.8)) {
         const cb = this.onArrive;
         this.target = null;
         this.onArrive = null;
@@ -96,8 +97,19 @@ export class Player {
     const p = this.obj.position;
     p.x += this.vx * dt;
     p.z += this.vz * dt;
-    p.x = clamp(p.x, L.PLAZA.minX, L.PLAZA.maxX);
-    p.z = clamp(p.z, L.PLAZA.minZ, L.PLAZA.maxZ);
+    for (const c of this.game.guns.colliders) {
+      const dx = p.x - c.x;
+      const dz = p.z - c.z;
+      const d = Math.hypot(dx, dz);
+      const rr = c.r + RADIUS;
+      if (d < rr && d > 1e-4) {
+        p.x = c.x + (dx / d) * rr;
+        p.z = c.z + (dz / d) * rr;
+      }
+    }
+    const [wx, wz] = L.clampWalkable(p.x, p.z);
+    p.x = wx;
+    p.z = wz;
     for (const o of OBSTACLES) {
       const dx = p.x - o.x;
       const dz = p.z - o.z;
@@ -109,6 +121,11 @@ export class Player {
       }
     }
 
+    // give up auto-walking when blocked (e.g. target behind an obstacle)
+    const moved = Math.hypot(p.x - this.lastX, p.z - this.lastZ);
+    this.stuckT = this.target && moved < 0.01 ? (this.stuckT || 0) + dt : 0;
+    this.lastX = p.x;
+    this.lastZ = p.z;
     const speed = Math.hypot(this.vx, this.vz);
     this.moving = speed > 0.6;
     if (this.moving) {

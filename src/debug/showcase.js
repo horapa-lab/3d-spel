@@ -77,8 +77,8 @@ export function runShowcase(kind) {
     });
   } else {
     camera = new THREE.PerspectiveCamera(32, aspect, 0.1, 200);
-    camera.position.set(0, 9, 30);
-    camera.lookAt(0, 2.2, 0);
+    camera.position.set(0, 10, 34);
+    camera.lookAt(0, 2.8, -2);
     camera.updateMatrixWorld();
     const ground = new THREE.Mesh(new THREE.PlaneGeometry(80, 40), new THREE.MeshLambertMaterial({ color: 0xf0ae57 }));
     ground.rotation.x = -Math.PI / 2;
@@ -95,36 +95,45 @@ export function runShowcase(kind) {
       onBarricadeHit() {}, onZombieKilled() {},
     };
     const zs = new Zombies(stub);
-    const types = Object.keys(ENEMIES);
-    types.forEach((t, i) => {
+    const types = Object.keys(ENEMIES).filter((t) => !ENEMIES[t].boss || t === 'boss_zombie' || t === 'boss_orc');
+    const bosses = types.filter((t) => ENEMIES[t].boss);
+    const normal = types.filter((t) => !ENEMIES[t].boss);
+    normal.forEach((t, i) => {
       const z = zs.spawn(t, 15, { x: 0, z: 0 });
-      z.x = -13 + i * 3.6 + (t === 'boss' ? 1.5 : 0);
-      z.z = t === 'boss' ? -4 : 2;
+      z.x = -16 + i * 3.2;
+      z.z = 3;
       z.laneX = z.x;
       z.spawnT = 5;
       z.phase = 0.9 + i;
-      const p = new THREE.Vector3(z.x, 0, z.z + 3.2).project(camera);
+      const p = new THREE.Vector3(z.x, 0, z.z + 2.4).project(camera);
       addLabel(ENEMIES[t].name, '#fff', (p.x * 0.5 + 0.5) * window.innerWidth, (-p.y * 0.5 + 0.5) * window.innerHeight);
+    });
+    bosses.forEach((t, i) => {
+      const z = zs.spawn(t, 15, { x: 0, z: 0 });
+      z.x = -6 + i * 12;
+      z.z = -8;
+      z.spawnT = 5;
+      z.phase = 2 + i;
     });
     zs.render();
     const pl = buildPlayerModel();
-    pl.root.position.set(13.5, 0, 3);
+    pl.root.position.set(18.5, 0, 3);
     pl.root.rotation.y = -0.4;
     scene.add(pl.root);
     CRATE_TIERS.forEach((tier, i) => {
       const c = buildCrate(i);
-      c.position.set(-13 + i * 4.4, 0, -9);
+      c.position.set(-19 + i * 4.4, 0, -16);
       c.scale.setScalar(0.85);
       scene.add(c);
     });
     const luck = buildLuckStation();
-    luck.position.set(14, 0, -8);
+    luck.position.set(12, 0, -16);
     scene.add(luck);
     const vault = buildVault();
-    vault.position.set(17, 0, -5);
+    vault.position.set(16, 0, -16);
     scene.add(vault);
     const mount = buildMount();
-    mount.position.set(11, 0, -3);
+    mount.position.set(20, 0, -10);
     scene.add(mount);
   }
   renderer.render(scene, camera);

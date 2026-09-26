@@ -1,4 +1,5 @@
-// The game: renderer, main loop, economy actions and glue between systems.
+// The game: renderer, main loop, follow camera, economy actions and glue
+// between systems.
 
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
@@ -17,22 +18,23 @@ import { UI } from '../ui/ui.js';
 import { Input } from '../core/input.js';
 import { AudioSys } from '../core/audio.js';
 import { Platform } from '../core/platform.js';
-import { loadState, saveState, wipeSave } from '../core/save.js';
+import { loadState, saveState, wipeSave, defaultState } from '../core/save.js';
 import * as E from '../core/economy.js';
 import { WEAPON_BY_ID, WEAPONS } from '../data/weapons.js';
 import { RARITIES, EPIC } from '../data/rarities.js';
 import { zoneIndexForWave } from '../data/zones.js';
 import { fmt } from '../util/format.js';
-import { clamp, rand, easeInOutCubic } from '../util/math.js';
+import { clamp, rand, easeInOutCubic, damp } from '../util/math.js';
 import * as L from './layout.js';
 
 const QUALITY = {
-  low: { pr: 0.85, shadows: 'low', fx: 0.5, maxZ: 70 },
-  medium: { pr: 1.5, shadows: 'medium', fx: 0.8, maxZ: 110 },
+  low: { pr: 0.8, shadows: 'low', fx: 0.5, maxZ: 70 },
+  medium: { pr: 1.25, shadows: 'medium', fx: 0.8, maxZ: 110 },
   high: { pr: 2, shadows: 'high', fx: 1, maxZ: 140 },
 };
 
 const nextFrame = () => new Promise((r) => requestAnimationFrame(() => r()));
+const isLocalHost = () => /^(localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\])$/.test(location.hostname);
 
 export class Game {
   constructor(root) {
@@ -42,7 +44,6 @@ export class Game {
     this.realTime = 0;
     this.timeScale = 1;
     this.slowT = 0;
-    this.paused = false;
     this.shakeAmt = 0;
     this.fmt = fmt;
     this.lastT = performance.now();
@@ -53,11 +54,22 @@ export class Game {
     this.fpsN = 0;
     this.fpsLow = 0;
     this.fpsHigh = 0;
+    this.fpsBad = 0;
     this.pendingFly = null;
+    this.pendingBreach = false;
     this.lastMidgame = performance.now();
-    this.userGestured = false;
     this.hiddenAt = 0;
+    this.adPause = false;
+    this.rewardPending = false;
+    this.resetting = false;
+    this.zoom = 1;
     this.frame = this.frame.bind(this);
+  }
+
+  /** The simulation is frozen while a blocking menu / ad is up. */
+  get frozen() {
+    const open = this.ui && this.ui.open;
+    return this.adPause || this.rewardPending || open === 'settings' || open === 'confirm' || open === 'offline';
   }
 
   async init(progress = () => {}) {
@@ -78,39 +90,44 @@ export class Game {
     this.renderer.toneMapping = THREE.NoToneMapping;
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.scene = new THREE.Scene();
-    this.camera = new THREE.PerspectiveCamera(40, 1, 0.5, 1000);
-    this.camBase = new THREE.Vector3();
-    this.camLook = new THREE.Vector3();
+    this.camera = new THREE.PerspectiveCamera(45, 1, 0.5, 1000);
+    this.camFocus = new THREE.Vector3(L.PLAYER_START.x, 0, L.PLAYER_START.z - 4);
     this.resize();
     window.addEventListener('resize', () => this.resize());
+    this.canvas.addEventListener('wheel', (e) => {
+      e.preventDefault();
+      this.zoom = clamp(this.zoom * (e.deltaY > 0 ? 1.1 : 0.9), 0.75, 1.9);
+    }, { passive: false });
 
-    // shiny guns: image based lighting only on kit materials
+    // image based lighting for the toy-plastic look
     const pmrem = new THREE.PMREMGenerator(this.renderer);
     const env = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
     const M = kitMaterials();
     for (const k of ['solid', 'metal']) {
       M[k].envMap = env;
-      M[k].envMapIntensity = k === 'metal' ? 0.9 : 0.45;
+      M[k].envMapIntensity = k === 'metal' ? 0.9 : 0.5;
       M[k].needsUpdate = true;
     }
+    this.envMap = env;
     progress(0.15);
     await nextFrame();
 
     // ---------------- systems
     this.audio = new AudioSys();
     this.audio.setVolumes(this.settings.sfx, this.settings.music);
+    this.audio.setMuted(Platform.muted);
     this.fx = new Effects(this);
     this.world = new World(this);
     progress(0.35);
     await nextFrame();
     this.zombies = new Zombies(this);
+    this.zombies.setEnvMap(env);
     this.projectiles = new Projectiles(this);
     this.guns = new Guns(this);
     this.player = new Player(this);
     this.reveal = new Reveal(this);
     progress(0.5);
     await nextFrame();
-    // warm up every gun model (so the first unbox has no hitch)
     for (let i = 0; i < WEAPONS.length; i++) {
       gunTemplate(WEAPONS[i].id);
       if (i % 6 === 5) {
@@ -124,7 +141,8 @@ export class Game {
     this.input = new Input(this, this.canvas);
 
     this.applyQuality(q);
-    this.world.applyZone(zoneIndexForWave(state.wave));
+    this.zoneShown = this.zoneIndex();
+    this.world.applyZone(this.zoneShown);
     this.guns.sync();
     this.crate.refresh();
     this.barricadeMax = E.barricadeMaxHp(state);
@@ -133,12 +151,11 @@ export class Game {
     progress(0.9);
     await nextFrame();
 
-    // pre-compile shaders
+    this.updateCamera(1);
     this.renderer.compile(this.scene, this.camera);
     this.waves.reset();
     this.ui.refreshAll();
 
-    // CrazyGames: pause/mute during ads
     Platform.on('adStart', () => {
       this.adPause = true;
       this.audio.suspend();
@@ -152,19 +169,24 @@ export class Game {
     document.addEventListener('visibilitychange', () => this.onVisibility());
     window.addEventListener('pagehide', () => this.save());
 
-    // offline earnings from the last session
     const away = (Date.now() - (state.last || Date.now())) / 1000;
     if (!fresh && away > 60) this.offerOffline(away);
     progress(1);
   }
 
+  /** Zone follows the best wave reached (a breach never sends you back a zone). */
+  zoneIndex() {
+    return zoneIndexForWave(Math.max(this.state.wave, this.state.bestWave));
+  }
+
   applyDebugParams() {
+    // test hooks only work on a local dev server, never on portals
+    if (!isLocalHost()) return;
     const q = new URLSearchParams(location.search);
     this.debug = q.has('debug');
     if (q.has('reset')) {
       wipeSave();
-      const fresh = loadState();
-      this.state = fresh.state;
+      this.state = loadState().state;
       this.fresh = true;
       this.settings = this.state.settings;
     }
@@ -173,7 +195,6 @@ export class Game {
     if (q.has('tut')) this.state.tut = Number(q.get('tut')) || 0;
     if (q.has('q')) this.settings.quality = q.get('q');
     if (q.has('army')) {
-      // debug: fill the wall with random guns
       const n = Number(q.get('army')) || 16;
       this.state.up.slots = Math.max(0, Math.min(28, n - 4));
       this.state.guns = [];
@@ -192,7 +213,16 @@ export class Game {
     if (q && q !== 'auto' && QUALITY[q]) return q;
     const mobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent) || (navigator.maxTouchPoints > 1 && Math.min(screen.width, screen.height) < 820);
     const cores = navigator.hardwareConcurrency || 4;
-    if (mobile || cores <= 2) return 'medium';
+    if (mobile || cores <= 4) return 'medium';
+    // weak integrated GPUs start on medium, auto-resolution promotes/demotes later
+    try {
+      const gl = document.createElement('canvas').getContext('webgl');
+      const ext = gl && gl.getExtension('WEBGL_debug_renderer_info');
+      const name = ext ? String(gl.getParameter(ext.UNMASKED_RENDERER_WEBGL)) : '';
+      if (/Intel|UHD|HD Graphics|Mali|Adreno|PowerVR|SwiftShader|llvmpipe/i.test(name)) return 'medium';
+    } catch {
+      /* ignore */
+    }
     return 'high';
   }
 
@@ -220,30 +250,10 @@ export class Game {
     const h = this.root.clientHeight || window.innerHeight;
     this.width = w;
     this.height = h;
-    if (this.renderer) {
-      this.renderer.setSize(w, h, false);
-    }
+    if (this.renderer) this.renderer.setSize(w, h, false);
     this.camera.aspect = w / h;
-    // framing: landscape looks down the road, portrait goes higher & wider
-    const aspect = w / h;
-    const cq = new URLSearchParams(location.search).get('cam');
-    if (cq) {
-      const [cy, cz, lz, fov] = cq.split(',').map(Number);
-      this.camera.fov = fov;
-      this.camBase.set(0, cy, cz);
-      this.camLook.set(0, 0, lz);
-    } else if (aspect >= 1.2) {
-      this.camera.fov = 46;
-      this.camBase.set(0, 26, 30);
-      this.camLook.set(0, 0, -3);
-      const k = aspect < 1.55 ? 1.55 / aspect : 1;
-      this.camBase.sub(this.camLook).multiplyScalar(k).add(this.camLook);
-    } else {
-      this.camera.fov = 52;
-      const k = clamp(1.05 / aspect, 1, 2.2);
-      this.camBase.set(0, 34 * k, 22 + 10 * k);
-      this.camLook.set(0, 0, -6 + 2 * k);
-    }
+    this.portrait = w / h < 1;
+    this.camera.fov = this.portrait ? 58 : 46;
     this.camera.updateProjectionMatrix();
     if (this.reveal) this.reveal.resize(w, h);
     if (this.ui) this.ui.onResize();
@@ -275,15 +285,20 @@ export class Game {
       this.slowT -= dt;
       this.timeScale = this.slowT > 0 ? 0.3 : 1;
     }
-    const frozen = this.paused || this.adPause;
+    const frozen = this.frozen;
     const gdt = frozen ? 0 : dt * this.timeScale;
     this.time += gdt;
     this.input.update();
     if (!frozen) {
       this.player.update(gdt);
       this.crate.update(gdt);
+      this.guns.updatePads(gdt);
       this.waves.update(gdt);
       this.zombies.update(gdt);
+      if (this.pendingBreach) {
+        this.pendingBreach = false;
+        this.waves.breach();
+      }
       this.guns.update(gdt);
       this.projectiles.update(gdt);
       this.tickEconomy(gdt, dt);
@@ -311,6 +326,7 @@ export class Game {
   debugStep(seconds, dt = 1 / 30) {
     for (let t = 0; t < seconds; t += dt) {
       this.update(dt);
+      this.updateCamera(dt);
       this.fx.streaks.flush(0);
     }
   }
@@ -318,17 +334,15 @@ export class Game {
   tickEconomy(gdt, dt) {
     const s = this.state;
     s.stats.time += dt;
-    // barricade regen when nobody is hitting it
     this.barricadeMax = E.barricadeMaxHp(s);
     if (this.time - this.lastBarricadeHit > 2 && this.barricadeHp < this.barricadeMax) {
       this.barricadeHp = Math.min(this.barricadeMax, this.barricadeHp + this.barricadeMax * E.barricadeRegen(s) * gdt);
     }
-    // boosts tick in real time while playing
     for (const k of ['luck', 'coins']) {
       if (s.boosts[k] > 0) s.boosts[k] = Math.max(0, s.boosts[k] - dt);
       if (s.boostCd[k] > 0) s.boostCd[k] = Math.max(0, s.boostCd[k] - dt);
     }
-    // income estimate for offline earnings (EMA, ~40s window)
+    // income estimate for offline earnings (EMA, ~40s window, boosts excluded)
     this.incomeT += dt;
     if (this.incomeT >= 1) {
       const rate = this.incomeAcc / this.incomeT;
@@ -352,9 +366,15 @@ export class Game {
     this.fpsAcc = 0;
     this.fpsN = 0;
     this.fps = fps;
+    if (document.hidden) return;
     if (fps < 42) {
       this.fpsLow++;
       this.fpsHigh = 0;
+      if (fps < 28) this.fpsBad++;
+      if (this.fpsBad >= 3 && this.quality !== 'low') {
+        this.applyQualityKeepPr('low');
+        this.fpsBad = 0;
+      }
       if (this.fpsLow >= 2 && this.pr > 0.6) {
         this.pr = Math.max(0.6, this.pr * 0.85);
         this.renderer.setPixelRatio(this.pr);
@@ -365,6 +385,7 @@ export class Game {
     } else if (fps > 57) {
       this.fpsHigh++;
       this.fpsLow = 0;
+      this.fpsBad = 0;
       if (this.fpsHigh >= 4 && this.pr < this.targetPr) {
         this.pr = Math.min(this.targetPr, this.pr * 1.1);
         this.renderer.setPixelRatio(this.pr);
@@ -378,15 +399,29 @@ export class Game {
     const p = QUALITY[q];
     this.quality = q;
     this.world.setShadowQuality(p.shadows);
+    this.zombies.setShadows(p.shadows !== 'low');
     this.fx.setDensity(p.fx);
     this.maxZombies = p.maxZ;
   }
 
+  /** Third person follow camera (idle-game angle), mouse wheel zooms. */
   updateCamera(dt) {
     const c = this.camera;
-    c.position.copy(this.camBase);
-    // subtle parallax toward the player
-    c.position.x += (this.player.x || 0) * 0.08;
+    const p = this.player.obj.position;
+    const fx = clamp(p.x * 0.75, -8, 8);
+    const fz = clamp(p.z, -27, 15);
+    const k = 1 - Math.exp(-6 * Math.min(dt, 0.1));
+    this.camFocus.x += (fx - this.camFocus.x) * k;
+    this.camFocus.z += (fz - this.camFocus.z) * k;
+    const z = this.zoom;
+    const f = this.camFocus;
+    if (this.portrait) {
+      c.position.set(f.x * 0.6, 26 * z, f.z + 17 * z);
+      this._look = [f.x * 0.6, 0, f.z - 7 * z];
+    } else {
+      c.position.set(f.x, 15.5 * z, f.z + 13.5 * z);
+      this._look = [f.x, 0.5, f.z - 6.5 * z];
+    }
     if (this.shakeAmt > 0) {
       const s = this.shakeAmt * (this.settings.shake ? 1 : 0.15);
       c.position.x += (Math.random() - 0.5) * s;
@@ -394,15 +429,16 @@ export class Game {
       c.position.z += (Math.random() - 0.5) * s * 0.5;
       this.shakeAmt = Math.max(0, this.shakeAmt - dt * 2.2);
     }
-    c.lookAt(this.camLook.x + (this.player.x || 0) * 0.05, this.camLook.y, this.camLook.z);
+    c.lookAt(this._look[0], this._look[1], this._look[2]);
+    this.world.followShadow(f.x, f.z - 7);
   }
 
   shake(a) {
     this.shakeAmt = Math.min(1.4, Math.max(this.shakeAmt, a));
   }
 
-  flash(a = 0.4, color = '#ffffff') {
-    this.ui.flash(a, color);
+  flash(a = 0.4, color = '#ffffff', fromWeapon = false) {
+    this.ui.flash(a, color, fromWeapon);
   }
 
   // ---------------------------------------------------------------- economy
@@ -414,7 +450,7 @@ export class Game {
     const s = this.state;
     s.coins += v;
     s.stats.earned += v;
-    if (src === 'kill' || src === 'wave') this.incomeAcc += v;
+    if (src === 'kill' || src === 'wave') this.incomeAcc += v / this.coinBoost();
   }
 
   spend(c) {
@@ -437,14 +473,21 @@ export class Game {
     return this.crateFree() || this.state.coins >= E.crateCost(this.state);
   }
 
+  crateBusy() {
+    return this.crate.busy || this.reveal.active || !!this.pendingFly;
+  }
+
   openCrate() {
     const s = this.state;
-    if (this.crate.busy || this.reveal.active || this.pendingFly) return false;
+    if (this.crateBusy()) return false;
     let minRarity = 0;
     let kind = 'coins';
     if (s.bossCrates > 0) {
       s.bossCrates--;
-      minRarity = 2;
+      const n = s.stats.bossOpened || 0;
+      // scripted highlights: 1st boss crate = Epic+, 2nd = Legendary+, then Rare+
+      minRarity = n === 0 ? EPIC : n === 1 ? EPIC + 1 : 2;
+      s.stats.bossOpened = n + 1;
       kind = 'boss';
     } else if (s.freeCrates > 0) {
       s.freeCrates--;
@@ -457,6 +500,7 @@ export class Game {
     }
     const res = E.rollCrate(s, { luck: this.luckMult(), minRarity });
     s.pity = res.rarity >= EPIC ? 0 : s.pity + 1;
+    s.pityL = res.rarity >= EPIC + 1 ? 0 : (s.pityL || 0) + 1;
     s.opens++;
     s.stats.crates++;
     res.isNew = !s.seen[res.t];
@@ -480,9 +524,17 @@ export class Game {
       if (res.g) g.g = 1;
       res.newLevel = g.l;
     } else {
-      res.scrap = E.scrapValue(s, res.rarity);
+      // duplicate the army doesn't need: weapon mastery (+ a few coins)
+      s.mastery = s.mastery || {};
+      const before = E.masteryLevel(s.mastery[res.t] || 0);
+      s.mastery[res.t] = (s.mastery[res.t] || 0) + 1;
+      res.mastery = { copies: s.mastery[res.t], level: E.masteryLevel(s.mastery[res.t]), up: E.masteryLevel(s.mastery[res.t]) > before };
+      res.scrap = Math.ceil(E.scrapValue(s, res.rarity) * 0.5);
       this.addCoins(res.scrap, 'scrap');
+      this.guns.refreshStats();
     }
+    // quick reveal for routine results, the full show for anything exciting
+    res.quick = !res.isNew && res.rarity < EPIC && !res.g && d.kind !== 'replace';
     if (d.slot !== undefined) this.guns.hold = d.slot;
     this.crate.open(res);
     if (s.tut === 0) s.tut = 1;
@@ -497,17 +549,17 @@ export class Game {
     const from = new THREE.Vector3(L.CRATE_POS.x, 2.4, L.CRATE_POS.z);
     const m = createGunModel(res.t, !!res.g);
     const holder = new THREE.Group();
-    m.obj.scale.setScalar(WEAPON_BY_ID[res.t].scale * 1.55);
+    m.obj.scale.setScalar(WEAPON_BY_ID[res.t].scale * 1.6);
     holder.add(m.obj);
     holder.position.copy(from);
     this.scene.add(holder);
     let to;
-    if (d.kind === 'scrap') to = new THREE.Vector3(L.CRATE_POS.x, 7, L.CRATE_POS.z - 1);
+    if (d.kind === 'mastery') to = new THREE.Vector3(L.CRATE_POS.x, 7, L.CRATE_POS.z - 1);
     else {
       const slot = L.SLOTS[d.slot];
-      to = new THREE.Vector3(slot.x, slot.y + 1.2, slot.z);
+      to = new THREE.Vector3(slot.x, slot.mountH + 0.4, slot.z);
     }
-    this.pendingFly = { res, holder, from, to, t: 0, dur: d.kind === 'scrap' ? 0.45 : 0.75 };
+    this.pendingFly = { res, holder, from, to, t: 0, dur: d.kind === 'mastery' ? 0.45 : 0.8 };
     this.audio.play('pop');
     if (this.state.tut === 1) this.ui.hint('tut1');
   }
@@ -530,10 +582,11 @@ export class Game {
     const res = f.res;
     const d = res.place;
     this.guns.hold = -1;
-    if (d.kind === 'scrap') {
-      this.fx.sparkleBurst(p.x, p.y, p.z, 0xffd23f, 24, 6);
-      this.ui.overlay.coinFlyWorld(p.x, p.y, p.z, 8);
-      this.audio.play('buy');
+    if (d.kind === 'mastery') {
+      this.fx.sparkleBurst(p.x, p.y, p.z, RARITIES[res.rarity].hex, 26, 6);
+      this.ui.overlay.coinFlyWorld(p.x, p.y, p.z, 5);
+      this.ui.floatWorldText(p.x, p.y + 1, p.z, res.mastery.up ? `MASTERY ${res.mastery.level}!` : 'MASTERY +1', res.mastery.up ? '#ffd23f' : '#b9f0ff');
+      this.audio.play(res.mastery.up ? 'levelup' : 'buy');
     } else {
       this.guns.sync();
       this.guns.celebrate(d.slot);
@@ -544,6 +597,28 @@ export class Game {
       this.ui.bumpDps();
     }
     this.ui.refreshAll();
+  }
+
+  /** Walk up to a gun and pay to level it up. */
+  upgradeGun(i) {
+    const s = this.state;
+    const g = s.guns[i];
+    if (!g || g.l >= E.MAX_GUN_LEVEL) return false;
+    const cost = E.gunUpgradeCost(g);
+    if (s.coins < cost) return false;
+    this.spend(cost);
+    g.l++;
+    this.guns.refreshStats();
+    this.guns.celebrate(i, true);
+    const sl = L.SLOTS[i];
+    this.ui.floatWorldText(sl.x, sl.mountH + 2, sl.z, `LV ${g.l}!`, '#7fd8ff');
+    this.ui.floatCost(cost);
+    this.ui.bumpDps();
+    this.audio.play('levelup');
+    if (s.tut < 4 && s.tut >= 2) s.tut = Math.max(s.tut, 3);
+    this.ui.refreshAll();
+    this.save();
+    return true;
   }
 
   buyUpgrade(id, n = 1) {
@@ -562,7 +637,10 @@ export class Game {
       this.guns.sync();
       for (let i = 0; i < count; i++) {
         const idx = E.slotCount(s) - 1 - i;
-        if (L.SLOTS[idx]) this.fx.dust(L.SLOTS[idx].x, L.SLOTS[idx].z, 8, 0xe8d3a8);
+        if (L.SLOTS[idx]) {
+          this.fx.dust(L.SLOTS[idx].x, L.SLOTS[idx].z, 10, 0xe8d3a8);
+          this.guns.celebrate(idx);
+        }
       }
     }
     if (id === 'firepower' || id === 'firerate') {
@@ -586,10 +664,10 @@ export class Game {
 
   async activateBoost(kind) {
     const s = this.state;
-    if (s.boosts[kind] > 0 || s.boostCd[kind] > 0) return;
-    this.paused = true;
+    if (s.boosts[kind] > 0 || s.boostCd[kind] > 0 || this.rewardPending) return;
+    this.rewardPending = true;
     const ok = await Platform.rewarded();
-    this.paused = false;
+    this.rewardPending = false;
     if (!ok) {
       this.ui.toast('No ad available', 'Try again later');
       return;
@@ -597,26 +675,25 @@ export class Game {
     s.boosts[kind] = kind === 'luck' ? 180 : 240;
     s.boostCd[kind] = Platform.hasAds ? s.boosts[kind] : s.boosts[kind] + 300;
     this.audio.play('levelup');
-    this.ui.toast(kind === 'luck' ? 'LUCK x3 ACTIVE!' : '2X COINS ACTIVE!', kind === 'luck' ? 'Rare guns are way more likely' : 'Every zombie pays double');
+    this.ui.toast(kind === 'luck' ? 'LUCK x3 ACTIVE!' : '2X COINS ACTIVE!', kind === 'luck' ? 'Rare guns are way more likely' : 'Every monster pays double');
     this.ui.refreshAll();
     this.save();
   }
 
   // ---------------------------------------------------------------- events
-  onZombieKilled(z, opts) {
+  onZombieKilled(z) {
     const s = this.state;
     const coins = Math.ceil(z.reward * E.coinMultOf(s) * this.coinBoost());
     this.addCoins(coins, 'kill');
     s.stats.kills++;
     const y = this.zombies.aimY(z);
-    this.fx.goo(z.x, y, z.z, z.isBoss ? 0x9bff3a : z.def.bony ? 0xf2eee2 : 0x8fcb4a, z.isBoss ? 40 : 8, z.isBoss ? 12 : 5);
+    this.fx.goo(z.x, y, z.z, z.def.goo, z.isBoss ? 40 : 8, z.isBoss ? 12 : 5);
     this.fx.coinBurst(z.x, y, z.z, z.isBoss ? 8 : 2);
     this.ui.overlay.coinFlyWorld(z.x, y, z.z, z.isBoss ? 12 : 1);
     this.ui.overlay.floatText(z.x, y + 1.2 * z.scale, z.z, '+$' + fmt(coins), '#ffd23f', z.isBoss ? 1.8 : 0.9);
     this.audio.play('splat', { x: z.x });
     if (z.isBoss) this.onBossKilled(z);
     this.waves.onKill(z);
-    void opts;
   }
 
   onBossKilled(z) {
@@ -625,11 +702,12 @@ export class Game {
     s.bossCrates++;
     this.slowT = 0.9;
     this.shake(1);
-    this.flash(0.35);
-    this.fx.explosion(z.x, 1, z.z, 5, 0x9bff3a);
+    this.flash(0.3);
+    this.fx.explosion(z.x, 1, z.z, 5, z.def.goo);
     this.fx.confetti(z.x, 4, z.z, 60);
     this.audio.play('bossDown');
-    this.ui.banner('BOSS DEFEATED!', '+1 BOSS CRATE (Rare or better!)', 'good');
+    const n = s.stats.bossOpened || 0;
+    this.ui.banner('BOSS DEFEATED!', n === 0 ? '+1 BOSS CRATE · guaranteed EPIC!' : n === 1 ? '+1 BOSS CRATE · guaranteed LEGENDARY!' : '+1 BOSS CRATE (Rare or better!)', 'good');
     Platform.happytime();
   }
 
@@ -640,10 +718,14 @@ export class Game {
     this.fx.dust(z.x, L.BARRICADE_Z - 0.8, 3, 0xd9bd86);
     this.audio.play('thud');
     if (z.isBoss) this.shake(0.3);
-    if (this.barricadeHp <= 0) this.waves.breach();
+    if (this.barricadeHp <= 0) this.pendingBreach = true;
   }
 
-  changeZone(zi, forward) {
+  /** Called when the wave changes; visuals only move forward. */
+  checkZone(forward) {
+    const zi = this.zoneIndex();
+    if (zi === this.zoneShown) return;
+    this.zoneShown = zi;
     this.ui.zoneTransition(() => this.world.applyZone(zi), zi);
     this.audio.play('zone');
     if (forward && performance.now() - this.lastMidgame > 180000) {
@@ -668,9 +750,9 @@ export class Game {
       this.save();
     };
     if (!double) return give(1);
-    this.paused = true;
+    this.rewardPending = true;
     Platform.rewarded().then((ok) => {
-      this.paused = false;
+      this.rewardPending = false;
       give(ok ? 2 : 1);
     });
   }
@@ -683,25 +765,26 @@ export class Game {
       Platform.gameplayStop();
     } else {
       this.audio.resume();
-      Platform.gameplayStart();
+      if (!this.frozen) Platform.gameplayStart();
       const away = this.hiddenAt ? (Date.now() - this.hiddenAt) / 1000 : 0;
       this.hiddenAt = 0;
       this.lastT = performance.now();
-      if (away > 60) this.offerOffline(away);
+      if (away > 60 && this.ui.open !== 'offline') this.offerOffline(away);
     }
   }
 
   // ---------------------------------------------------------------- input
   onUserGesture() {
-    if (!this.userGestured) {
-      this.userGestured = true;
-    }
     this.audio.unlock();
   }
 
   onKey(e) {
     this.onUserGesture();
     const ui = this.ui;
+    if (ui.open === 'offline') {
+      if (e.code === 'Escape' || e.code === 'Enter' || e.code === 'Space') ui.collectOfflineNow();
+      return;
+    }
     if (this.reveal.active && (e.code === 'Space' || e.code === 'Enter' || e.code === 'KeyE')) {
       this.reveal.dismiss();
       return;
@@ -709,18 +792,29 @@ export class Game {
     if (e.code === 'Escape') {
       if (ui.closeTop()) return;
       ui.openPanel('settings');
-    } else if (e.code === 'KeyU') ui.togglePanel('upgrades');
+      return;
+    }
+    if (ui.open === 'settings' || ui.open === 'confirm') return;
+    if (e.code === 'KeyU') ui.togglePanel('upgrades');
     else if (e.code === 'KeyI' || e.code === 'Tab') {
       e.preventDefault();
       ui.togglePanel('arsenal');
     } else if (e.code === 'KeyM') {
       const muted = this.settings.sfx === 0 && this.settings.music === 0;
-      this.settings.sfx = muted ? 0.8 : 0;
-      this.settings.music = muted ? 0.5 : 0;
+      if (muted) {
+        this.settings.sfx = this.settings.lastSfx ?? 0.8;
+        this.settings.music = this.settings.lastMusic ?? 0.5;
+      } else {
+        this.settings.lastSfx = this.settings.sfx;
+        this.settings.lastMusic = this.settings.music;
+        this.settings.sfx = 0;
+        this.settings.music = 0;
+      }
       this.audio.setVolumes(this.settings.sfx, this.settings.music);
       ui.toast(muted ? 'Sound ON' : 'Sound OFF', '');
+      this.save();
       ui.refreshAll();
-    } else if (e.code === 'KeyE' || e.code === 'Space') {
+    } else if ((e.code === 'KeyE' || e.code === 'Space') && !ui.open) {
       this.goToCrate();
     }
   }
@@ -738,35 +832,45 @@ export class Game {
     const v = new THREE.Vector3();
     const hit = (wx, wy, wz, r) => {
       v.set(wx, wy, wz).project(this.camera);
+      if (v.z > 1) return false;
       const px = (v.x * 0.5 + 0.5) * this.width;
       const py = (-v.y * 0.5 + 0.5) * this.height;
       return Math.hypot(px - x, py - y) < r;
     };
-    const scale = Math.min(1.3, this.height / 800);
-    if (hit(L.CRATE_POS.x, 0.8, L.CRATE_POS.z, 95 * scale)) return this.goToCrate();
-    if (hit(L.LUCK_POS.x, 1.2, L.LUCK_POS.z, 70 * scale)) return this.player.walkTo(L.LUCK_PAD.x, L.LUCK_PAD.z);
-    if (hit(L.VAULT_POS.x, 1.2, L.VAULT_POS.z, 70 * scale)) return this.player.walkTo(L.VAULT_PAD.x, L.VAULT_PAD.z);
-    const slot = this.guns.pickAt(x, y, this.camera, this.width, this.height, 46);
+    const scale = Math.min(1.4, this.height / 720);
+    if (hit(L.CRATE_POS.x, 0.8, L.CRATE_POS.z, 110 * scale)) return this.goToCrate();
+    if (hit(L.LUCK_POS.x, 1.2, L.LUCK_POS.z, 80 * scale)) return this.player.walkTo(L.LUCK_PAD.x, L.LUCK_PAD.z);
+    if (hit(L.VAULT_POS.x, 1.2, L.VAULT_POS.z, 80 * scale)) return this.player.walkTo(L.VAULT_PAD.x, L.VAULT_PAD.z);
+    const slot = this.guns.pickAt(x, y, this.camera, this.width, this.height, 50 * scale);
     if (slot) {
       this.ui.showGunTip(slot, true);
+      this.player.walkTo(slot.padX, slot.padZ);
       return;
     }
-    // walk to ground point
     const ndc = new THREE.Vector2((x / this.width) * 2 - 1, -(y / this.height) * 2 + 1);
     const ray = new THREE.Raycaster();
     ray.setFromCamera(ndc, this.camera);
     const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
     const p = new THREE.Vector3();
-    if (ray.ray.intersectPlane(plane, p) && p.z > L.PLAZA.minZ - 2) this.player.walkTo(p.x, p.z);
+    if (ray.ray.intersectPlane(plane, p)) this.player.walkTo(p.x, p.z);
   }
 
   // ---------------------------------------------------------------- save
   save() {
+    if (this.resetting) return;
     saveState(this.state);
   }
 
   hardReset() {
+    this.resetting = true;
     wipeSave();
+    try {
+      // overwrite too, in case a late pagehide handler tries to save
+      saveState(defaultState());
+      wipeSave();
+    } catch {
+      /* ignore */
+    }
     location.reload();
   }
 }

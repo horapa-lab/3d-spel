@@ -1,11 +1,11 @@
-// Zombie horde: logic + instanced rendering (a handful of draw calls for
-// hundreds of animated blocky zombies).
+// Monster horde: logic + instanced rendering. Every monster type has its own
+// instanced part meshes (head/torso/arms/legs, or a single blob body), so a
+// big mixed horde costs only a few draw calls per type.
 
 import * as THREE from 'three';
-import { buildZombieGeometries, RIG } from '../gfx/characters.js';
-import { ENEMIES, BOSS_VARIANTS } from '../data/enemies.js';
+import { buildEnemyGeometries, HUMANOID } from '../gfx/characters.js';
+import { ENEMIES, ALL_ENEMY_IDS } from '../data/enemies.js';
 import { zombieStats } from '../core/economy.js';
-import { zoneIndexForWave } from '../data/zones.js';
 import { rand, clamp } from '../util/math.js';
 import * as L from './layout.js';
 
@@ -17,14 +17,55 @@ const _q = new THREE.Quaternion();
 const _e = new THREE.Euler();
 const _p = new THREE.Vector3();
 const _s = new THREE.Vector3();
-const _c = new THREE.Color();
-const WHITE = new THREE.Color(1, 1, 1);
 
 let UID = 1;
 
-function colorArr(hex) {
-  _c.set(hex);
-  return [_c.r, _c.g, _c.b];
+class TypeRenderer {
+  constructor(scene, geo, max, material, ghostMat) {
+    this.rig = geo.rig;
+    this.meshes = {};
+    for (const [part, g] of Object.entries(geo.parts)) {
+      const n = part === 'arm' || part === 'leg' ? max * 2 : max;
+      const mat = this.rig === 'ghost' ? ghostMat : material;
+      const m = new THREE.InstancedMesh(g, mat, n);
+      m.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+      m.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(n * 3).fill(1), 3);
+      m.instanceColor.setUsage(THREE.DynamicDrawUsage);
+      m.count = 0;
+      m.visible = false;
+      m.frustumCulled = false;
+      m.castShadow = true;
+      scene.add(m);
+      this.meshes[part] = m;
+    }
+    this.n = {};
+  }
+  begin() {
+    for (const k in this.meshes) this.n[k] = 0;
+  }
+  put(part, matrix, r, g, b) {
+    const m = this.meshes[part];
+    const i = this.n[part]++;
+    matrix.toArray(m.instanceMatrix.array, i * 16);
+    const c = m.instanceColor.array;
+    c[i * 3] = r;
+    c[i * 3 + 1] = g;
+    c[i * 3 + 2] = b;
+  }
+  end() {
+    for (const k in this.meshes) {
+      const m = this.meshes[k];
+      m.count = this.n[k];
+      m.visible = m.count > 0;
+      if (m.visible) {
+        m.instanceMatrix.needsUpdate = true;
+        m.instanceColor.needsUpdate = true;
+      }
+    }
+  }
+  setShadows(on) {
+    for (const k in this.meshes) this.meshes[k].castShadow = on;
+  }
 }
 
 export class Zombies {
@@ -33,37 +74,24 @@ export class Zombies {
     this.list = [];
     this.pool = [];
     this.boss = null;
-    const geos = buildZombieGeometries();
-    const bodyMat = new THREE.MeshLambertMaterial({ vertexColors: true });
-    const accMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.5, metalness: 0.2 });
-    const mk = (geo, count, mat = bodyMat, tinted = true) => {
-      const m = new THREE.InstancedMesh(geo, mat, count);
-      m.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-      if (tinted) {
-        m.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(count * 3), 3);
-        m.instanceColor.setUsage(THREE.DynamicDrawUsage);
-      }
-      m.count = 0;
-      m.frustumCulled = false;
-      m.castShadow = true;
-      game.scene.add(m);
-      return m;
-    };
-    this.meshes = {
-      head: mk(geos.head, MAX),
-      torso: mk(geos.torso, MAX),
-      arm: mk(geos.arm, MAX * 2),
-      leg: mk(geos.leg, MAX * 2),
-      helmet: mk(geos.helmet, MAX, accMat, false),
-      horns: mk(geos.horns, MAX, accMat, false),
-      crown: mk(geos.crown, 8, accMat, false),
-      pads: mk(geos.pads, 60, accMat, false),
-    };
-    // simple blob shadows are handled by real shadows; hp bars by the UI overlay
+    const geos = buildEnemyGeometries();
+    const mat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.55, metalness: 0.05 });
+    const ghostMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.4, transparent: true, opacity: 0.82, emissive: 0x223355, emissiveIntensity: 0.4 });
+    this.material = mat;
+    this.renderers = {};
+    for (const id of ALL_ENEMY_IDS) {
+      this.renderers[id] = new TypeRenderer(game.scene, geos[id], ENEMIES[id].boss ? 4 : MAX, mat, ghostMat);
+    }
+  }
+
+  setEnvMap(env) {
+    this.material.envMap = env;
+    this.material.envMapIntensity = 0.35;
+    this.material.needsUpdate = true;
   }
 
   setShadows(on) {
-    for (const k in this.meshes) this.meshes[k].castShadow = on;
+    for (const k in this.renderers) this.renderers[k].setShadows(on);
   }
 
   get aliveCount() {
@@ -80,8 +108,9 @@ export class Zombies {
     z.uid = UID++;
     z.type = type;
     z.def = def;
+    z.rig = def.rig;
     z.isBoss = !!def.boss;
-    z.x = opts.x ?? rand(-L.LANE_HALF, L.LANE_HALF) * (def.boss ? 0 : 1);
+    z.x = opts.x ?? rand(-L.LANE_HALF, L.LANE_HALF);
     z.z = opts.z ?? L.SPAWN_Z + rand(-1.5, 1.5);
     z.laneX = z.x;
     z.speed = def.speed * rand(0.9, 1.1);
@@ -90,7 +119,7 @@ export class Zombies {
     z.reward = st.reward;
     z.dmg = st.dmg;
     z.scale = def.s * (def.boss ? 1 : rand(0.95, 1.06));
-    z.w = def.w;
+    z.w = 1;
     z.phase = Math.random() * 10;
     z.flash = 0;
     z.knock = 0;
@@ -98,29 +127,16 @@ export class Zombies {
     z.deathT = 0;
     z.attackT = rand(0, 0.8);
     z.state = 'walk';
-    z.stopZ = L.BARRICADE_Z - 1.35 - rand(0, 1.8) * (def.boss ? 0 : 1) - (def.boss ? 1.6 : 0) - (z.scale - 1) * 0.4;
+    z.stopZ = L.BARRICADE_Z - 1.3 - rand(0, 1.8) * (def.boss ? 0 : 1) - (def.boss ? 1.8 : 0) - (z.scale - 1) * 0.4;
     z.incoming = 0;
     z.dmgAcc = 0;
     z.dmgT = 0;
     z.crit = false;
     z.pull = null;
     z.spawnT = 0;
-    z.yaw = 0;
     z.hpShow = 0;
-    let skin = def.skin;
-    let pants = def.pants;
-    if (def.boss) {
-      const v = BOSS_VARIANTS[zoneIndexForWave(wave) % BOSS_VARIANTS.length];
-      skin = v.skin;
-      pants = v.pants;
-      z.name = v.name;
-    }
-    z.cSkin = colorArr(skin);
-    z.cShirt = colorArr(def.boss ? skin : def.shirt);
-    z.cPants = colorArr(pants);
-    // slight color variation so hordes don't look cloned
-    const v = rand(0.9, 1.08);
-    for (const arr of [z.cSkin, z.cShirt]) for (let i = 0; i < 3; i++) arr[i] *= v;
+    z.name = def.name;
+    z.tint = rand(0.9, 1.06);
     this.list.push(z);
     if (z.isBoss) this.boss = z;
     return z;
@@ -128,21 +144,17 @@ export class Zombies {
 
   /** Hit point for projectiles (chest height). */
   aimY(z) {
-    return 1.3 * z.scale;
+    return (z.rig === 'blob' ? 0.6 : z.rig === 'ghost' ? 1.4 : 1.25) * z.scale;
   }
 
   radius(z) {
-    return 0.55 * z.scale * z.w;
+    return 0.55 * z.scale;
   }
 
-  /**
-   * Apply damage. Returns true if it killed the zombie.
-   * opts: crit, knock, silent, source ('aoe' etc)
-   */
   damage(z, amount, opts = {}) {
     if (z.dying) return false;
     z.hp -= amount;
-    z.flash = 0.09;
+    z.flash = 0.08;
     z.hpShow = 2.5;
     if (opts.knock) z.knock = Math.max(z.knock, opts.knock / (z.isBoss ? 6 : z.scale));
     z.dmgAcc += amount;
@@ -159,17 +171,14 @@ export class Zombies {
     z.dying = true;
     z.deathT = 0;
     z.hp = 0;
-    z.deathDir = opts.fromX !== undefined ? Math.sign(z.x - opts.fromX) || 1 : rand(-1, 1) < 0 ? -1 : 1;
+    z.deathDir = opts.fromX !== undefined ? Math.sign(z.x - opts.fromX) || 1 : Math.random() < 0.5 ? -1 : 1;
     if (this.boss === z) this.boss = null;
     this.game.onZombieKilled(z, opts);
   }
 
-  /** Remove everything instantly (breach / reset). */
   clear(withEffects = false) {
     for (const z of this.list) {
-      if (withEffects && !z.dying) {
-        this.game.fx.goo(z.x, this.aimY(z), z.z, 0x8fcb4a, 5);
-      }
+      if (withEffects && !z.dying) this.game.fx.goo(z.x, this.aimY(z), z.z, z.def.goo, 5);
       this.pool.push(z);
     }
     this.list.length = 0;
@@ -194,7 +203,6 @@ export class Zombies {
       if (z.flash > 0) z.flash -= dt;
       if (z.hpShow > 0) z.hpShow -= dt;
 
-      // black hole pull
       if (z.pull) {
         const p = z.pull;
         const dx = p.x - z.x;
@@ -205,17 +213,17 @@ export class Zombies {
         z.z += (dz / d) * sp;
         z.pull = null;
       }
-
       if (z.knock > 0) {
         z.z -= z.knock * dt * 6;
         z.knock = Math.max(0, z.knock - dt * 8);
       }
 
       if (z.state === 'walk') {
-        z.z += z.speed * dt;
-        // drift back to lane, wobble
+        // slimes move in hops
+        const hop = z.rig === 'blob' ? Math.max(0, Math.sin(z.phase)) * 1.6 : 1;
+        z.z += z.speed * dt * hop;
         z.x += (z.laneX - z.x) * Math.min(1, dt * 0.8) + Math.sin(z.phase * 0.7) * dt * 0.15;
-        z.phase += dt * z.speed * 2.6 / z.scale;
+        z.phase += (dt * z.speed * (z.rig === 'blob' ? 2.2 : 2.6)) / z.scale;
         if (z.z >= z.stopZ) {
           z.z = z.stopZ;
           z.state = 'attack';
@@ -231,22 +239,19 @@ export class Zombies {
       }
       z.x = clamp(z.x, -L.ROAD_HALF + 0.4, L.ROAD_HALF - 0.4);
 
-      // damage numbers are batched per zombie
       if (z.dmgAcc > 0) {
         z.dmgT -= dt;
         if (z.dmgT <= 0) {
-          game.ui.overlay.damageNumber(z.x, this.aimY(z) + 0.8 * z.scale, z.z, z.dmgAcc, z.crit);
+          game.ui.overlay.damageNumber(z.x, this.aimY(z) + 0.9 * z.scale, z.z, z.dmgAcc, z.crit);
           z.dmgAcc = 0;
           z.crit = false;
-          z.dmgT = 0.22;
+          z.dmgT = z.isBoss ? 0.4 : 0.22;
         }
       }
     }
-    // keep sorted by progress (closest to the barricade first) for targeting
     list.sort((a, b) => b.z - a.z);
   }
 
-  /** First living zombie within range of a point (list is sorted by progress). */
   findFirst(x, z, range, skipOverkill = true) {
     const r2 = range * range;
     let fallback = null;
@@ -290,130 +295,128 @@ export class Zombies {
 
   // ---------------------------------------------------------------- render
   render() {
-    const M = this.meshes;
-    let nBody = 0;
-    let nLimb = 0;
-    let nHelmet = 0;
-    let nHorns = 0;
-    let nCrown = 0;
-    let nPads = 0;
+    for (const k in this.renderers) this.renderers[k].begin();
     const t = this.game.time;
-
     for (const z of this.list) {
+      const R = this.renderers[z.type];
+      if (!R) continue;
       const s = z.scale;
+      let sc = s;
       let tilt = 0;
       let sink = 0;
-      let sc = s;
+      let yaw = Math.sin(z.phase * 0.5) * 0.12;
+      let bob = 0;
+      let sx = 1;
+      let sy = 1;
+      const k = z.dying ? Math.min(1, z.deathT / 0.3) : 0;
+      if (z.dying) {
+        sink = Math.max(0, z.deathT - 0.35) * 2.2 * s;
+        sc = s * (1 - Math.max(0, z.deathT - 0.45) * 3.2);
+        yaw = z.deathDir * k * 0.5;
+      }
+      if (sc <= 0.01) continue;
+      if (z.spawnT < 0.35) sc *= z.spawnT / 0.35;
+      const f = z.flash > 0 ? 2.6 : z.tint;
+      const cr = f;
+      const cg = f;
+      const cb = f;
+
+      if (z.rig === 'blob') {
+        // hop + squash & stretch
+        const h = Math.max(0, Math.sin(z.phase));
+        bob = z.state === 'walk' ? h * 0.9 * s : Math.abs(Math.sin(t * 6 + z.phase)) * 0.25 * s;
+        const squash = z.state === 'walk' ? (h < 0.15 ? 1 - (0.15 - h) * 2 : 1 + h * 0.12) : 1 + Math.sin(t * 12 + z.phase) * 0.08;
+        sy = squash;
+        sx = 1 / Math.sqrt(Math.max(0.5, squash));
+        if (z.dying) {
+          sy = Math.max(0.05, 1 - k * 0.9);
+          sx = 1 + k * 0.6;
+        }
+        _e.set(0, yaw, 0);
+        _q.setFromEuler(_e);
+        _p.set(z.x, bob - sink, z.z);
+        _s.set(sc * sx, sc * sy, sc * sx);
+        _root.compose(_p, _q, _s);
+        R.put('body', _root, cr, cg, cb);
+        continue;
+      }
+
+      if (z.rig === 'ghost') {
+        bob = 0.45 + Math.sin(t * 3 + z.phase) * 0.18;
+        _e.set(0.15 + (z.dying ? -k * 0.8 : 0), yaw, Math.sin(t * 2 + z.phase) * 0.1);
+        _q.setFromEuler(_e);
+        _p.set(z.x, (bob + (z.dying ? z.deathT * 3 : 0)) * s, z.z);
+        _s.set(sc, sc, sc);
+        _root.compose(_p, _q, _s);
+        R.put('body', _root, cr, cg, cb);
+        const wave = Math.sin(t * 5 + z.phase) * 0.25;
+        for (const side of [-1, 1]) {
+          _e.set(-1.3 + wave * side, 0, side * 0.15);
+          this._local(0.62 * side, 1.05, 0.1, _e, 1);
+          _m.multiplyMatrices(_root, _local);
+          R.put('arm', _m, cr, cg, cb);
+        }
+        continue;
+      }
+
+      // humanoid
       let legA = 0;
       let armA = -1.35;
       let armB = -1.35;
-      let bob = 0;
-      let yaw = Math.sin(z.phase * 0.5) * 0.12;
       let lean = 0.08;
       if (z.dying) {
-        const k = Math.min(1, z.deathT / 0.3);
-        tilt = -k * 1.45; // fall backwards
-        sink = Math.max(0, z.deathT - 0.35) * 2.2 * s;
-        sc = s * (1 - Math.max(0, z.deathT - 0.45) * 3.2);
+        tilt = -k * 1.45;
         armA = armB = -1.35 - k * 1.2;
-        yaw = z.deathDir * k * 0.5;
       } else if (z.state === 'walk') {
-        legA = Math.sin(z.phase) * 0.62;
-        armA = -1.35 + Math.sin(z.phase + 1.2) * 0.14;
-        armB = -1.35 - Math.sin(z.phase + 1.2) * 0.14;
-        bob = Math.abs(Math.cos(z.phase)) * 0.07 * s;
+        legA = Math.sin(z.phase) * 0.7;
+        armA = -1.35 + Math.sin(z.phase + 1.2) * 0.16;
+        armB = -1.35 - Math.sin(z.phase + 1.2) * 0.16;
+        bob = Math.abs(Math.cos(z.phase)) * 0.08 * s;
       } else {
         const a = Math.sin(t * 9 + z.phase);
         armA = -1.9 + a * 0.6;
         armB = -1.9 - a * 0.6;
-        lean = 0.2 + a * 0.08;
+        lean = 0.22 + a * 0.08;
         legA = 0.15;
       }
-      if (sc <= 0.01) continue;
-      // spawn pop-in out of the portal
-      if (z.spawnT < 0.35) sc *= z.spawnT / 0.35;
-
       _e.set(tilt + lean, yaw, 0);
       _q.setFromEuler(_e);
       _p.set(z.x, bob - sink, z.z);
       _s.set(sc, sc, sc);
       _root.compose(_p, _q, _s);
 
-      const flash = z.flash > 0;
-      const w = z.w;
-      // torso
-      this._part(M.torso, nBody, _root, 0, RIG.hipY, 0, 0, w, 1, 1, flash ? null : z.cShirt);
-      // head (slight tilt)
-      _e.set(-0.12 + (z.state === 'attack' ? 0.2 : 0), Math.sin(z.phase * 0.35) * 0.2, Math.sin(z.phase * 0.5) * 0.12);
-      this._partE(M.head, nBody, _root, 0, RIG.neckY, 0.02, _e, 1, flash ? null : z.cSkin);
-      nBody++;
-      // arms
-      _e.set(armA, 0, 0.08);
-      this._partE(M.arm, nLimb, _root, -RIG.armX * w, RIG.shoulderY, 0, _e, w, flash ? null : z.cSkin);
-      _e.set(armB, 0, -0.08);
-      this._partE(M.arm, nLimb + 1, _root, RIG.armX * w, RIG.shoulderY, 0, _e, w, flash ? null : z.cSkin);
-      // legs
+      _e.set(0, 0, 0);
+      this._local(0, HUMANOID.hipY, 0, _e, 1);
+      _m.multiplyMatrices(_root, _local);
+      R.put('torso', _m, cr, cg, cb);
+      _e.set(-0.1 + (z.state === 'attack' ? 0.2 : 0), Math.sin(z.phase * 0.35) * 0.2, Math.sin(z.phase * 0.5) * 0.1);
+      this._local(0, HUMANOID.neckY, 0.02, _e, 1);
+      _m.multiplyMatrices(_root, _local);
+      R.put('head', _m, cr, cg, cb);
+      _e.set(armA, 0, 0.1);
+      this._local(-HUMANOID.armX, HUMANOID.shoulderY, 0, _e, 1);
+      _m.multiplyMatrices(_root, _local);
+      R.put('arm', _m, cr, cg, cb);
+      _e.set(armB, 0, -0.1);
+      this._local(HUMANOID.armX, HUMANOID.shoulderY, 0, _e, 1);
+      _m.multiplyMatrices(_root, _local);
+      R.put('arm', _m, cr, cg, cb);
       _e.set(legA, 0, 0);
-      this._partE(M.leg, nLimb, _root, -RIG.legX * w, RIG.hipY, 0, _e, w, flash ? null : z.cPants);
+      this._local(-HUMANOID.legX, HUMANOID.hipY, 0, _e, 1);
+      _m.multiplyMatrices(_root, _local);
+      R.put('leg', _m, cr, cg, cb);
       _e.set(-legA, 0, 0);
-      this._partE(M.leg, nLimb + 1, _root, RIG.legX * w, RIG.hipY, 0, _e, w, flash ? null : z.cPants);
-      nLimb += 2;
-
-      const acc = z.def.acc;
-      if (acc === 'helmet' || acc === 'horns' || acc === 'boss') {
-        const mesh = acc === 'helmet' ? M.helmet : acc === 'horns' ? M.horns : M.crown;
-        const idx = acc === 'helmet' ? nHelmet++ : acc === 'horns' ? nHorns++ : nCrown++;
-        _e.set(-0.12, Math.sin(z.phase * 0.35) * 0.2, Math.sin(z.phase * 0.5) * 0.12);
-        this._partE(mesh, idx, _root, 0, RIG.neckY, 0.02, _e, 1, undefined);
-      }
-      if (acc === 'pads' || acc === 'boss') {
-        this._part(M.pads, nPads++, _root, 0, RIG.hipY, 0, 0, w, 1, 1, undefined);
-      }
+      this._local(HUMANOID.legX, HUMANOID.hipY, 0, _e, 1);
+      _m.multiplyMatrices(_root, _local);
+      R.put('leg', _m, cr, cg, cb);
     }
-    M.torso.count = M.head.count = nBody;
-    M.arm.count = M.leg.count = nLimb;
-    M.helmet.count = nHelmet;
-    M.horns.count = nHorns;
-    M.crown.count = nCrown;
-    M.pads.count = nPads;
-    for (const k in M) {
-      M[k].instanceMatrix.needsUpdate = true;
-      if (M[k].instanceColor) M[k].instanceColor.needsUpdate = true;
-    }
+    for (const k in this.renderers) this.renderers[k].end();
   }
 
-  _part(mesh, idx, root, x, y, z, rx, sx, sy, sz, color) {
-    _e.set(rx, 0, 0);
-    _q.setFromEuler(_e);
-    _p.set(x, y, z);
-    _s.set(sx, sy, sz);
-    _local.compose(_p, _q, _s);
-    _m.multiplyMatrices(root, _local);
-    _m.toArray(mesh.instanceMatrix.array, idx * 16);
-    this._color(mesh, idx, color);
-  }
-
-  _partE(mesh, idx, root, x, y, z, euler, sx, color) {
+  _local(x, y, z, euler, s) {
     _q.setFromEuler(euler);
     _p.set(x, y, z);
-    _s.set(sx, 1, sx);
+    _s.set(s, s, s);
     _local.compose(_p, _q, _s);
-    _m.multiplyMatrices(root, _local);
-    _m.toArray(mesh.instanceMatrix.array, idx * 16);
-    this._color(mesh, idx, color);
-  }
-
-  _color(mesh, idx, color) {
-    if (color === undefined || !mesh.instanceColor) return;
-    const a = mesh.instanceColor.array;
-    if (color === null) {
-      a[idx * 3] = WHITE.r * 2.2;
-      a[idx * 3 + 1] = WHITE.g * 2.2;
-      a[idx * 3 + 2] = WHITE.b * 2.2;
-    } else {
-      a[idx * 3] = color[0];
-      a[idx * 3 + 1] = color[1];
-      a[idx * 3 + 2] = color[2];
-    }
   }
 }

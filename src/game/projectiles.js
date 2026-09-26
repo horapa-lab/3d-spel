@@ -407,7 +407,7 @@ export class Projectiles {
     const zs = game.zombies;
     game.fx.nukeBlast(x, z, radius);
     game.shake(1.1);
-    game.flash(0.3);
+    game.flash(0.3, '#ffffff', true);
     game.audio.play('nuke');
     zs.forEachInRadius(x, z, radius, (t) => zs.damage(t, dmg, { crit, knock: 1.5, fromX: x }));
   }

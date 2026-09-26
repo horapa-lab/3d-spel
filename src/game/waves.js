@@ -2,6 +2,7 @@
 
 import * as E from '../core/economy.js';
 import { zoneIndexForWave, zoneName } from '../data/zones.js';
+import { BOSS_BY_ZONE } from '../data/enemies.js';
 import { rand } from '../util/math.js';
 import * as L from './layout.js';
 
@@ -44,7 +45,7 @@ export class Waves {
     if (w >= 8 && r < 0.08) n = 3 + Math.floor(Math.random() * 3);
     const baseX = rand(-L.LANE_HALF, L.LANE_HALF);
     for (let i = 0; i < n; i++) {
-      const type = E.pickEnemyType(w);
+      const type = E.pickEnemyType(w, Math.random, game.zoneShown);
       const x = n > 1 ? Math.max(-L.LANE_HALF, Math.min(L.LANE_HALF, baseX + rand(-1.6, 1.6))) : undefined;
       zs.spawn(type, w, { x, z: L.SPAWN_Z + rand(-1, 1) - i * 0.9 });
     }
@@ -55,9 +56,11 @@ export class Waves {
   spawnBoss() {
     const game = this.game;
     this.bossSpawned = true;
-    const z = game.zombies.spawn('boss', game.state.wave, { x: 0 });
+    const zi = game.zoneShown;
+    const z = game.zombies.spawn(BOSS_BY_ZONE[zi % BOSS_BY_ZONE.length], game.state.wave, { x: 0, z: L.SPAWN_Z + 10 });
     if (z) {
       game.ui.banner('BOSS INCOMING!', z.name, 'boss');
+      game.ui.hintOnce('boss');
       game.audio.play('boss');
       game.shake(0.5);
       game.fx.rings.spawn(0, 0.2, L.SPAWN_Z, 1, 14, 0xff3358, 1.2);
@@ -80,14 +83,12 @@ export class Waves {
     const s = game.state;
     const bonus = Math.ceil(E.waveClearBonus(s.wave) * E.coinMultOf(s) * game.coinBoost() * (bossKill ? 4 : 1));
     game.addCoins(bonus, 'wave');
-    const oldZone = zoneIndexForWave(s.wave);
     s.wave++;
     s.waveKills = 0;
     if (s.wave > s.bestWave) s.bestWave = s.wave;
     game.ui.toast(`WAVE ${s.wave - 1} CLEARED`, `+$${game.fmt(bonus)}`);
     game.audio.play('wave');
-    const newZone = zoneIndexForWave(s.wave);
-    if (newZone !== oldZone) game.changeZone(newZone, true);
+    game.checkZone(true);
     this.bossSpawned = false;
     this.bossTimer = E.isBossWave(s.wave) ? 3.2 : 0;
     if (E.isBossWave(s.wave)) setTimeout(() => game.ui.banner('BOSS WAVE', `Wave ${s.wave}`, 'boss'), 900);
@@ -105,13 +106,12 @@ export class Waves {
     game.audio.play('breach');
     game.fx.rings.spawn(0, 0.3, L.BARRICADE_Z, 1, 30, 0xff3358, 0.9);
     game.fx.explosion(0, 0.5, L.BARRICADE_Z - 2, 5, 0xff5a3a);
-    const oldZone = zoneIndexForWave(s.wave);
     s.wave = Math.max(1, s.wave - 1);
     s.waveKills = 0;
     game.barricadeHp = game.barricadeMax;
     game.ui.banner('BREACH!', `Fall back to wave ${s.wave} · upgrade your army!`, 'bad');
-    const newZone = zoneIndexForWave(s.wave);
-    if (newZone !== oldZone) game.changeZone(newZone, false);
+    game.ui.hintOnce('breach');
+    game.checkZone(false);
     this.reset();
     this.spawnT = 2.5;
     game.save();
