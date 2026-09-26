@@ -72,4 +72,10 @@ async function boot() {
   }, 200);
 }
 
-boot();
+const showcase = new URLSearchParams(location.search).get('showcase');
+if (showcase) {
+  clearInterval(tipTimer);
+  document.fonts.load('20px "Lilita One"').finally(() => import('./debug/showcase.js').then((m) => m.runShowcase(showcase)));
+} else {
+  boot();
+}

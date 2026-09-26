@@ -120,6 +120,7 @@ export class UI {
     this.open = null;
     this.hintKey = null;
     this.tipT = 0;
+    this.flashA = 0;
     this.buildHud();
     this.buildPanels();
     this.onResize();
@@ -224,13 +225,10 @@ export class UI {
   }
 
   flash(a, color) {
-    const f = this.els.flash;
-    f.style.background = color;
-    f.style.transition = 'none';
-    f.style.opacity = String(a);
-    void f.offsetWidth;
-    f.style.transition = 'opacity 0.6s ease-out';
-    f.style.opacity = '0';
+    // JS driven (CSS transitions can stall when frames are throttled)
+    if (a < this.flashA) return;
+    this.flashA = a;
+    this.els.flash.style.background = color;
   }
 
   zoneTransition(cb, zi) {
@@ -821,6 +819,18 @@ export class UI {
   update(dt) {
     const g = this.game;
     const s = g.state;
+    if (this.flashA > 0 || this.flashShown) {
+      this.flashA = Math.max(0, this.flashA - dt * 1.4);
+      this.els.flash.style.opacity = this.flashA.toFixed(3);
+      this.flashShown = this.flashA > 0;
+    }
+    // reveal: hide world labels, dim the HUD
+    const rv = g.reveal.active;
+    if (rv !== this.revealShown) {
+      this.revealShown = rv;
+      document.getElementById('labels').classList.toggle('dimmed', rv);
+      this.hud.classList.toggle('revealing', rv);
+    }
     // rolling coin counter
     const diff = s.coins - this.coinShown;
     if (Math.abs(diff) < 0.5) this.coinShown = s.coins;

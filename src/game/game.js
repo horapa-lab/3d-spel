@@ -61,11 +61,13 @@ export class Game {
   }
 
   async init(progress = () => {}) {
-    const { state, fresh } = loadState();
-    this.state = state;
-    this.fresh = fresh;
-    this.settings = state.settings;
+    const loaded = loadState();
+    this.state = loaded.state;
+    this.fresh = loaded.fresh;
+    this.settings = this.state.settings;
     this.applyDebugParams();
+    const state = this.state;
+    const fresh = this.fresh;
 
     // ---------------- renderer
     const q = this.resolveQuality();
@@ -163,6 +165,7 @@ export class Game {
       wipeSave();
       const fresh = loadState();
       this.state = fresh.state;
+      this.fresh = true;
       this.settings = this.state.settings;
     }
     if (q.has('coins')) this.state.coins = Number(q.get('coins')) || 0;
@@ -250,7 +253,7 @@ export class Game {
     this.lastT = performance.now();
     requestAnimationFrame(this.frame);
     Platform.gameplayStart();
-    if (this.fresh) this.ui.hint('tut0');
+    if (this.state.tut === 0) this.ui.hint('tut0');
   }
 
   // ---------------------------------------------------------------- loop

@@ -92,7 +92,8 @@ export class Reveal {
     m.obj.position.sub(center);
     inner.add(m.obj);
     inner.rotation.y = Math.PI / 2; // show the side profile, muzzle pointing right
-    this.baseScale = 3.4 / Math.max(size.z, 1.2);
+    // fit by length and height so pistols don't fill the screen
+    this.baseScale = Math.min(3.3 / Math.max(size.z, 0.8), 1.55 / Math.max(size.y, 0.3));
     this.holder.add(inner);
     this.model = m;
     const rc = RARITIES[result.rarity];
@@ -141,10 +142,10 @@ export class Reveal {
         return;
       }
     } else {
-      this.holder.position.y = Math.sin(this.t * 2) * 0.08;
+      this.holder.position.y = 0.1 + Math.sin(this.t * 2) * 0.08;
       if (this.t > this.autoT && this.game.settings.autoContinue !== false) this.dismiss();
     }
-    this.dim.material.uniforms.uA.value = alpha * 0.8;
+    this.dim.material.uniforms.uA.value = alpha * 0.88;
     this.raysMat.uniforms.uA.value = alpha;
     this.holder.scale.setScalar(Math.max(0.001, scale * this.baseScale * this.fit));
     this.holder.rotation.y = Math.sin(this.t * 1.3) * 0.55;
