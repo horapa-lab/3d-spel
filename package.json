@@ -1,0 +1,21 @@
+{
+  "name": "build-a-gun-army",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Build a Gun Army - 3D idle zombie defense web game",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host",
+    "build": "vite build",
+    "preview": "vite preview --host",
+    "sim": "node tools/sim.mjs"
+  },
+  "dependencies": {
+    "@fontsource/lilita-one": "^5.3.0",
+    "@fontsource/luckiest-guy": "^5.3.0",
+    "three": "^0.186.1"
+  },
+  "devDependencies": {
+    "vite": "^8.3.1"
+  }
+}
