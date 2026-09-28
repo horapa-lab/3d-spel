@@ -1,0 +1,4 @@
+node_modules
+dist
+review/renders/**/*.png
+!review/renders/.keep

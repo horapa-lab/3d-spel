@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Model Lab</title>
+    <style>
+      html, body { margin: 0; height: 100%; overflow: hidden; font-family: system-ui, sans-serif; }
+      body[data-bg='studio'] { background: radial-gradient(ellipse at 50% 35%, #f4f1ec 0%, #d9d4cc 55%, #b9b2a8 100%); }
+      body[data-bg='dark'] { background: radial-gradient(ellipse at 50% 35%, #3a4150 0%, #1b1f27 60%, #0e1015 100%); }
+      body[data-bg='sea'] { background: linear-gradient(#bfe3ff 0%, #6fb3e0 55%, #1f5f8a 100%); }
+      #lab { position: fixed; inset: 0; width: 100vw; height: 100vh; }
+      #labels { position: fixed; inset: 0; pointer-events: none; }
+      .label { position: absolute; transform: translateY(-22px); height: 22px; line-height: 22px; text-align: center;
+        font-size: 13px; font-weight: 600; color: #222; }
+      body[data-bg='dark'] .label { color: #e8e8e8; }
+    </style>
+  </head>
+  <body>
+    <canvas id="lab"></canvas>
+    <div id="labels"></div>
+    <script type="module" src="/src/lab/lab.ts"></script>
+  </body>
+</html>

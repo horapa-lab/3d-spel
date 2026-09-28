@@ -1,0 +1,23 @@
+/* Base page styles. OWNER: UI agent may extend (keep #game / #ui-root / #loading ids). */
+:root {
+  --ui-font: 'Nunito', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body {
+  margin: 0; height: 100%; overflow: hidden; background: #0b1a2a;
+  font-family: var(--ui-font); -webkit-user-select: none; user-select: none; touch-action: none;
+}
+#game { position: fixed; inset: 0; width: 100vw; height: 100vh; display: block; outline: none; }
+#ui-root { position: fixed; inset: 0; pointer-events: none; }
+#ui-root > * { pointer-events: auto; }
+#loading {
+  position: fixed; inset: 0; display: grid; place-items: center; z-index: 50;
+  background: radial-gradient(ellipse at 50% 30%, #1e5a86 0%, #0b1a2a 70%); transition: opacity .6s ease;
+}
+#loading.done { opacity: 0; pointer-events: none; }
+.loading-inner { width: min(420px, 80vw); text-align: center; color: #e9f6ff; }
+.loading-logo { font-size: 44px; font-weight: 900; letter-spacing: 1px; text-shadow: 0 4px 18px rgba(0,0,0,.45); margin-bottom: 18px; }
+.loading-track { height: 12px; border-radius: 99px; background: rgba(255,255,255,.12); overflow: hidden; }
+#loading-bar { height: 100%; width: 0; background: linear-gradient(90deg, #52e0ff, #3ab0ff); border-radius: 99px; transition: width .25s ease; }
+#loading-text { margin-top: 10px; font-size: 14px; opacity: .8; }
