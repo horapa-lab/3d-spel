@@ -4,9 +4,10 @@
  * lab.html?kind=fish&ids=a,b,c            grid of models
  * lab.html?kind=fish&page=0&per=12        page through registry.list(kind)
  * lab.html?kind=rod&id=x&views=4          one model from 4 angles
+ * lab.html?kind=fish&id=x&mutations=none,molten,golden   one model, one cell per mutation
  * Optional: cols=4  yaw=35  pitch=18  mutation=molten  attributes=gleaming,glittering
  *           bg=studio|dark|sea  labels=0  anim=1 (let animated models run 1.5s before capture)
- *           zoom=1.0 (camera distance multiplier)
+ *           zoom=1.0 (camera distance multiplier)  pose=open (models that support poses)
  *
  * Sets window.__labReady = true once rendered. window.__labInfo holds tri/draw-call counts per cell.
  */
@@ -19,9 +20,12 @@ import '../models/index';
 const p = new URLSearchParams(location.search);
 const kind = (p.get('kind') ?? 'fish') as ModelKind;
 const single = p.get('id');
-const views = Number(p.get('views') ?? (single ? 4 : 1));
+/** mutations=a,b,c with id=x → one cell per mutation ("none" = no mutation). */
+const mutationList = p.get('mutations')?.split(',').filter(Boolean) ?? null;
+const views = Number(p.get('views') ?? (single ? (mutationList ? 1 : 4) : 1));
 let ids: string[];
-if (single) ids = Array.from({ length: views }, () => single);
+if (single && mutationList) ids = mutationList.map(() => single);
+else if (single) ids = Array.from({ length: views }, () => single);
 else if (p.get('ids')) ids = p.get('ids')!.split(',').filter(Boolean);
 else {
   const per = Number(p.get('per') ?? 12);
@@ -38,6 +42,7 @@ const attributes = p.get('attributes')?.split(',').filter(Boolean) ?? [];
 const bg = p.get('bg') ?? 'studio';
 const showLabels = p.get('labels') !== '0';
 const anim = p.get('anim') === '1';
+const pose = p.get('pose') ?? undefined;
 
 document.body.dataset.bg = bg;
 const canvas = document.getElementById('lab') as HTMLCanvasElement;
@@ -81,7 +86,8 @@ function makeCell(id: string, index: number): Cell {
 
   let model: THREE.Object3D;
   try {
-    model = registry.build(kind, id, { mutation, attributes, lod: 0, quality: 'ultra', seed: 1 });
+    const cellMutation = mutationList ? (mutationList[index] === "none" ? null : mutationList[index]) : mutation;
+    model = registry.build(kind, id, { mutation: cellMutation, attributes, lod: 0, quality: "ultra", seed: 1, pose });
   } catch (err) {
     console.error(`[lab] build failed for ${kind}/${id}`, err);
     model = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.4, 0.4), new THREE.MeshBasicMaterial({ color: 0xff0000 }));
@@ -154,7 +160,7 @@ function makeCell(id: string, index: number): Cell {
     label.style.left = `${(col / cols) * 100}%`;
     label.style.top = `${((row + 1) / rows) * 100}%`;
     label.style.width = `${100 / cols}%`;
-    label.textContent = views > 1 && single ? `${id} · view ${index + 1}` : id;
+    label.textContent = mutationList ? `${id} · ${mutationList[index]}` : views > 1 && single ? `${id} · view ${index + 1}` : id;
     document.getElementById('labels')!.appendChild(label);
   }
   return { scene, camera, model, id };

@@ -84,6 +84,45 @@ systems created before you; everything else only inside `update()` or after `gam
 - Models are registered at import time: `registry.register(kind, { list, build, describe })`.
   `describe(id)` must return a one-sentence visual description (used by reviewers).
 
+## Canonical id lists (shared between authors — use exactly these)
+
+**PASSIVE_IDS** — rod passives (`RodDef.passive.id`) AND enchant effects (`EnchantDef.effect.id`)
+share one vocabulary. The fishing system implements all of them; gear and economy only reference them.
+
+| id | meaning (`chance` = per cast 0..1, `value` = magnitude) |
+|---|---|
+| `luck_burst` | chance per cast: +`value` luck (fraction) for 45 s |
+| `mutation_touch` | chance per catch to force mutation `mutation` (if none rolled) |
+| `double_catch` | chance to also catch a 2nd copy of the same species (new weight roll) |
+| `coin_bonus` | +`value` (fraction) to the fish's value |
+| `xp_bonus` | +`value` (fraction) XP |
+| `quick_bite` | chance the fish bites instantly after landing |
+| `heavy_lifter` | no overweight penalty; +`value` maxKg multiplier |
+| `calm_waters` | fish resilience ×(1+`value`) (fish moves less) |
+| `heat_proof` | can fish in `ashen_lava` (required there) |
+| `abyss_proof` | can fish in `abyssal_trench` (required there) |
+| `perfect_bonus` | perfect catch → value ×(1+`value`) |
+| `treasure_sense` | treasure map chance ×(1+`value`) (base 1/200 per catch) |
+| `weather_luck` | +`value` luck during rain/storm/fog |
+| `night_luck` | +`value` luck at night |
+| `day_luck` | +`value` luck during the day |
+| `size_up` | weight roll skewed heavier by `value` (0..1) |
+| `zone_luck` | +`value` luck in `zones` |
+| `rarity_up` | chance to re-roll a common/trash catch once |
+| `reel_power` | reel progress gain ×(1+`value`) |
+| `shake_master` | shake buttons reduce wait by 0.5 s × (1+`value`) |
+
+**BAIT_IDS** (gear defines them all; fish may reference them in `preferredBait`):
+`worm, cricket, minnow, shrimp, squid_strip, glow_worm, fish_head, truffle_grub, coral_crumb,
+frost_fly, magma_larva, seaweed_wrap, golden_lure, moon_moth, abyss_eye, kraken_ink`
+
+**Zone rules**: `ashen_lava` needs `heat_proof`, `abyssal_trench` needs `abyss_proof` (rod passive
+or enchant). Sub-zones (`frostpeak_lake`, `ashen_lava`) are surfaces returned by
+`world.localWaterAt(x,z)`; the bobber floats at that surface's `y` instead of the sea.
+
+**Runtime interactables**: `world.interactables` is a mutable array. Economy may push/remove
+dynamic entries (e.g. treasure chests, kind `'chest'`) at runtime.
+
 ## Performance budget (the game must not lag — Chromebook 4 GB is a target device)
 
 | Thing | Budget |

@@ -23,6 +23,7 @@ export async function createEconomy(_ctx: GameContext): Promise<EconomyAPI> {
     coins: () => save.coins, level: () => save.level, xp: () => save.xp, xpToNext: () => 100,
     addCoins(a) { save.coins += a; }, spendCoins(a) { if (save.coins < a) return false; save.coins -= a; return true; },
     addXp(a) { save.xp += a; },
+    grantItem(id, q) { save.items[id] = (save.items[id] ?? 0) + q; },
     equippedRod: rod, effectiveRodStats: () => rod().stats, rodEnchants: () => [],
     equippedBait: () => null, consumeBait() {},
     luckMultiplier: () => 1, lureMultiplier: () => 1, xpMultiplier: () => 1, sellMultiplier: () => 1, mutationMultiplier: () => 1,

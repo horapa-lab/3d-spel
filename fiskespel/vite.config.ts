@@ -11,7 +11,7 @@ export default defineConfig({
     chunkSizeWarningLimit: 4000,
     rollupOptions: {
       input: {
-        main: resolve(__dirname, 'index.html'),
+        main: resolve(import.meta.dirname, 'index.html'),
       },
     },
   },

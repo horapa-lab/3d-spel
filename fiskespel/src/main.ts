@@ -59,6 +59,7 @@ async function boot() {
       ...(params.has('event') ? { event: params.get('event') } : {}),
     });
   }
+  clock.attach?.(events);
   const input = createInput(canvas);
 
   const ctx = {

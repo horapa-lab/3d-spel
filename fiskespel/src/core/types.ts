@@ -92,6 +92,8 @@ export interface WorldClockAPI {
   applyOverride(o: { weather?: Weather | null; isNight?: boolean | null; event?: string | null; durationMs: number }): void;
   /** Called once per frame by main.ts. */
   update(dt: number): void;
+  /** Optional: main.ts calls this right after creation so the clock can emit env:* events. */
+  attach?(events: EventBus<GameEvents>): void;
 }
 
 // ─────────────────────────────────────────────────────────────── content defs
@@ -274,8 +276,8 @@ export interface RodDef {
   obtain: 'starter' | 'shop' | 'quest' | 'bestiary' | 'event' | 'treasure' | 'level';
   obtainHint: string;
   stats: RodStats;
-  /** Passive ability id implemented by the fishing system (see data/rods.ts header for the list). */
-  passive?: { id: string; name: string; description: string; chance?: number; value?: number };
+  /** Passive ability — `id` from PASSIVE_IDS (docs/CONTRACT.md), implemented by the fishing system. */
+  passive?: { id: string; name: string; description: string; chance?: number; value?: number; mutation?: string; zones?: string[] };
   /** Model builder params. Opaque to everything except models/rods. */
   visual: unknown;
 }
@@ -352,8 +354,8 @@ export interface EnchantDef {
   description: string;
   /** Additive stat modifiers applied to the enchanted rod. */
   stats?: Partial<RodStats>;
-  /** Special behaviour id implemented by fishing/economy. */
-  effect?: { id: string; value?: number; chance?: number };
+  /** Special behaviour — `id` from PASSIVE_IDS (same semantics as rod passives), implemented by fishing/economy. */
+  effect?: { id: string; value?: number; chance?: number; mutation?: string; zones?: string[] };
 }
 
 // ─────────────────────────────────────────────────────────────── runtime data
@@ -561,6 +563,8 @@ export interface ModelBuildOptions {
   lod?: 0 | 1 | 2;
   quality?: QualityTier;
   seed?: number;
+  /** Optional pose for models that support it, e.g. 'open' for chests/crates (lab: ?pose=open). */
+  pose?: string;
 }
 
 /**
@@ -752,6 +756,8 @@ export interface EconomyAPI {
   addCoins(amount: number, reason: string): void;
   spendCoins(amount: number): boolean;
   addXp(amount: number, reason: string): void;
+  /** Give items/bait/rods/bobbers (treasure maps from fishing, quest rewards, loot). kind inferred from id. */
+  grantItem(id: string, qty: number): void;
 
   equippedRod(): RodDef;
   /** Rod stats including enchants and active boosts. */
