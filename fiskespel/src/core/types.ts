@@ -329,8 +329,12 @@ export interface ItemDef {
   totem?: { weather?: Weather; isNight?: boolean; event?: string; durationMin: number };
   /** For relics: which enchant pool it rolls from. */
   relic?: { pool: 'standard' | 'exalted' | 'cosmic' };
-  /** For potions: temporary boost. */
-  potion?: { luckMult?: number; lureMult?: number; xpMult?: number; durationMin: number };
+  /** For potions: temporary boost. (sellMult / mutationMult optional, added by economy.) */
+  potion?: { luckMult?: number; lureMult?: number; xpMult?: number; sellMult?: number; mutationMult?: number; durationMin: number };
+  /** Backpack upgrade (kind 'misc'): using it adds `slots` to the backpack capacity (economy). */
+  backpack?: { slots: number };
+  /** Minimum player level to buy it in a shop (economy; default 1). */
+  unlockLevel?: number;
   visual: unknown;
 }
 
@@ -429,7 +433,10 @@ export interface PlayerSave {
   discovered: string[];
   quests: QuestState[];
   questCooldowns: Record<string, number>;
-  treasureMaps: { id: string; target: [number, number] | null }[];
+  /** Completed angler quests per NPC id (economy; quest-reward rods). */
+  questCounts?: Record<string, number>;
+  /** Decoded treasure maps (economy). `chest` = treasure_chest item id, `location` = island near the X. */
+  treasureMaps: { id: string; target: [number, number] | null; chest?: string; location?: string }[];
   boosts: Boost[];
   stats: {
     catches: number;
@@ -438,6 +445,14 @@ export interface PlayerSave {
     playSeconds: number;
     biggestKg: number;
     rarest: string | null;
+    /** Optional counters (economy). */
+    fishSold?: number;
+    questsCompleted?: number;
+    treasuresFound?: number;
+    cratesOpened?: number;
+    appraisals?: number;
+    enchants?: number;
+    bestiaryClaims?: number;
   };
   settings: {
     music: number;
@@ -739,6 +754,21 @@ export interface ShopEntry {
   price: number;
   unlockLevel: number;
   owned?: boolean;
+  /** How many the player already holds (consumables: bait units / items). */
+  count?: number;
+  /** Units per purchase shown in the shop (e.g. bait sold in packs). price is per unit. */
+  pack?: number;
+}
+
+/** A special effect active on the equipped rod (rod passive or enchant effect). Economy → fishing. */
+export interface ActiveEffect {
+  id: string;
+  value?: number;
+  chance?: number;
+  mutation?: string;
+  zones?: string[];
+  /** 'rod' (rod passive) or 'enchant:<id>'. */
+  source: string;
 }
 
 export interface EnchantResult {
@@ -807,6 +837,30 @@ export interface EconomyAPI {
   discover(locationId: string): boolean;
   save_(): void; // persist now
   update(dt: number): void;
+
+  // ── optional extras (economy) ──────────────────────────────────────────
+  /** Rod passive + enchant effects of the equipped rod, in one list (fishing may use instead of reading both). */
+  activeEffects?(): ActiveEffect[];
+  /** Why a shop entry can / cannot be bought right now (for disabled buttons). */
+  buyCheck?(entry: ShopEntry, qty?: number): { ok: boolean; reason?: string };
+  /** Coins that selling these fish (default: sellAll set) would give right now, incl. sellMultiplier. */
+  sellPreview?(uids?: string[]): number;
+  /** Whether the enchant altar works now (night) and a readable reason if not. */
+  canEnchant?(): { ok: boolean; reason?: string };
+  /** Reward that claiming this zone's bestiary page gives. */
+  bestiaryReward?(zoneId: string): { coins: number; xp: number; bobber: string | null; rod: string | null };
+  /** Ms until this angler offers a new quest (0 = ready). */
+  questCooldownMs?(npcId: string): number;
+  /** One-Eyed Rosa: decode one treasure map for TREASURE_DECODE_COST coins. */
+  decodeMap?(): { ok: boolean; message: string; target?: [number, number]; locationId?: string };
+  /** Undecoded treasure maps held. */
+  mapCount?(): number;
+  /** Innkeeper: respawn here. */
+  setSpawn?(locationId: string): void;
+  /** Rewarded ads: run the ad via the platform and grant the reward. */
+  adReward?(kind: 'luck' | 'sell' | 'bait' | 'xp'): Promise<boolean>;
+  /** Ms until that ad reward is offered again (0 = available). */
+  adRewardCooldownMs?(kind: 'luck' | 'sell' | 'bait' | 'xp'): number;
 }
 
 // ─────────────────────────────────────────────────────────────── ui / audio / platform
@@ -856,6 +910,15 @@ export interface PlatformAPI {
   getItem(key: string): Promise<string | null>;
   setItem(key: string, value: string): Promise<void>;
   username(): Promise<string | null>;
+  /**
+   * Optional hook, set by main.ts after the event bus exists: the platform calls it when an ad
+   * starts / ends (rewarded or midgame, SDK or local fake) so the game can pause/mute.
+   */
+  onAd?: (state: 'start' | 'end') => void;
+  /** True while an ad is showing. */
+  adPlaying?(): boolean;
+  /** Synchronous best-effort write used on pagehide (localStorage / SDK data are sync underneath). */
+  setItemSync?(key: string, value: string): void;
 }
 
 // ─────────────────────────────────────────────────────────────── events
