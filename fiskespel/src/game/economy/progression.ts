@@ -10,7 +10,7 @@ import { MAX_LEVEL } from './save';
 export { MAX_LEVEL };
 
 /** Curve constants (see economy-sim for how they were chosen). */
-export const XP_CURVE = { base: 60, linear: 18, coef: 0.55, power: 2.1 };
+export const XP_CURVE = { base: 240, linear: 40, coef: 0.5, power: 2.1 };
 
 /** XP needed to go from `level` to `level + 1`. */
 export function xpForLevel(level: number): number {

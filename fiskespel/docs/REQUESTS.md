@@ -44,3 +44,21 @@ for the 1/200 treasure map roll.
 **→ ui:** when a chest / crate is opened economy calls `ui:open {panel:'items', data:{loot:[{kind,id?,amount}], title}}`
 (also returned by `useItem`). Optional economy helpers for panels: `buyCheck`, `sellPreview`, `canEnchant`,
 `bestiaryReward`, `questCooldownMs`, `decodeMap`, `mapCount`, `setSpawn`, `adReward(kind)`, `adRewardCooldownMs(kind)`.
+
+### economy — hand-in status / TODOs (appended at hand-in)
+- **→ lead, main.ts (still needed):** (1) `platform.onAd = (s) => events.emit(s === 'start' ? 'ad:start' : 'ad:end', {})`;
+  (2) `events.on('equip:rod', ({rodId}) => ctx.player.equipRod(rodId))`; (3) add to the debug header:
+  `?save=fresh` (ignore + never write the save; enables `?coins=N&level=N&maps=N`), `?sdk=1|0` (force/skip CrazyGames SDK),
+  `?noads=1` (local ads instant), `?adfail=1` (local rewarded ads fail).
+- **→ render/sky:** `src/world/sky/index.ts:300` throws every frame: `toward.sub(...).multiplyScalar(...).max is not a function`.
+- **→ gear:** items.ts is still a stub, so no crates/relics/totems/potions/maps/backpack upgrades are in shops yet. Economy handles
+  them by `kind` (see list above; verified with mocked items in tests/economy-treasure.test.ts). Bestiary bobbers resolve by id via
+  `BESTIARY_BOBBERS` in economy/bestiary.ts (or any price-null bobber whose name/description mentions the zone).
+  Rods: `obtain:'level'` are granted at unlockLevel, `'quest'` after N quests (N = first number in obtainHint; per angler if the hint
+  names one), `'bestiary'` when the zone named in the hint is claimed (no zone named → all pages), `'event'` sold while the event
+  named in the hint is active, `'treasure'` via chest loot tables (4 % fallback if no table lists them). Free boats (price 0) are auto-granted.
+- **SDK v3 names used (please verify against docs.crazygames.com):** `SDK.init()`, `SDK.environment`, `SDK.game.loadingStart/loadingStop/
+  gameplayStart/gameplayStop/happytime`, `SDK.ad.requestAd(type, {adStarted, adFinished, adError})`, `SDK.data.getItem/setItem` (sync or
+  promise both handled), `SDK.user.isUserAccountAvailable`, `SDK.user.getUser()`. The data module must be enabled in the CrazyGames portal.
+- **TODO economy:** re-run `npx vitest run tests/economy-sim.test.ts --silent=false` once FISH/RODS are filled in (it switches from the
+  synthetic catalog to real data automatically) and retune `XP_CURVE` in economy/progression.ts if needed.

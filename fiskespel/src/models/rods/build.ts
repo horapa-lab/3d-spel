@@ -6,25 +6,11 @@
 import * as THREE from 'three';
 import { ROD_GRIP_NAME, ROD_TIP_NAME, type ModelBuildOptions } from '../../core/types';
 import { band, cyl, gemGeo, gradient, Kit, lathe, path, ring, tube, xf, type Geo, type V3 } from './kit/geo';
-import { gem, M, P, type MatSpec } from './kit/mat';
-import type { MatRef, RodVisual } from './spec';
+import { gem, M, mref, mspec } from './kit/mat';
+import { addSkull } from './parts';
+import type { RodVisual } from './spec';
 import { buildReel } from './reels';
 import { buildDecos } from './decos';
-
-export function mref(r: MatRef | undefined, fallback: MatRef = 'steel'): THREE.Material {
-  const x = r ?? fallback;
-  if (typeof x === 'string') {
-    const p = (P as Record<string, MatSpec>)[x];
-    if (!p) throw new Error(`unknown material preset ${x}`);
-    return M(p);
-  }
-  return M(x);
-}
-
-export function mspec(r: MatRef | undefined, fallback: MatRef = 'steel'): MatSpec {
-  const x = r ?? fallback;
-  return typeof x === 'string' ? (P as Record<string, MatSpec>)[x] : x;
-}
 
 export interface RodCtx {
   v: RodVisual;
@@ -385,28 +371,6 @@ function buildButt(c: RodCtx): void {
       break;
     }
   }
-}
-
-export function addSkull(c: { add(g: Geo, m: THREE.Material): void }, x: number, y: number, z: number, s: number, bone: THREE.Material): void {
-  const cran = new THREE.SphereGeometry(s * 0.5, 12, 10);
-  cran.scale(1, 1.05, 1.1);
-  cran.translate(x, y + s * 0.62, z);
-  c.add(cran, bone);
-  const jaw = new THREE.SphereGeometry(s * 0.34, 10, 6, 0, TAU, Math.PI * 0.35, Math.PI * 0.65);
-  jaw.scale(1, 0.9, 1.1);
-  jaw.translate(x, y + s * 0.34, z + s * 0.08);
-  c.add(jaw, bone);
-  const dark = M({ c: '#140c08', r: 0.9 });
-  for (const sx of [-1, 1]) {
-    const eye = new THREE.SphereGeometry(s * 0.14, 8, 6);
-    eye.scale(1, 0.9, 0.5);
-    eye.translate(x + sx * s * 0.18, y + s * 0.6, z + s * 0.5);
-    c.add(eye, dark);
-  }
-  const nose = new THREE.ConeGeometry(s * 0.06, s * 0.12, 3);
-  nose.rotateX(Math.PI);
-  nose.translate(x, y + s * 0.42, z + s * 0.52);
-  c.add(nose, dark);
 }
 
 // ───────────────────────────────────────────────────────────── grips

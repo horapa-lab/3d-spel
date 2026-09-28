@@ -5,8 +5,9 @@
  */
 import * as THREE from 'three';
 import { band, cyl, extrude, gemGeo, lathe, path, rbox, ring, starShape, tube, xf, type Geo, type V3 } from './kit/geo';
-import { gem, M, type MatSpec } from './kit/mat';
-import { addSkull, mref, mspec, type RodCtx } from './build';
+import { gem, M, mref, mspec, type MatSpec } from './kit/mat';
+import { addSkull } from './parts';
+import type { RodCtx } from './build';
 import type { ReelSpec, ReelTheme } from './spec';
 
 const TAU = Math.PI * 2;

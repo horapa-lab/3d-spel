@@ -60,6 +60,7 @@ async function boot() {
     });
   }
   clock.attach?.(events);
+  platform.onAd = (state) => events.emit(state === 'start' ? 'ad:start' : 'ad:end', {});
   const input = createInput(canvas);
 
   const ctx = {

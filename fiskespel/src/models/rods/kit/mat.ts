@@ -299,3 +299,18 @@ export function lacquer(c: string, r = 0.35, m = 0.1): THREE.Material {
 export function glow(c: string, ei = 2): THREE.Material {
   return M({ c, e: c, ei, r: 0.4 });
 }
+
+/** Material from a preset name (see `P`) or a spec. */
+export function mref(r: string | MatSpec | undefined, fallback: string | MatSpec = 'steel'): THREE.Material {
+  return M(mspec(r, fallback));
+}
+
+export function mspec(r: string | MatSpec | undefined, fallback: string | MatSpec = 'steel'): MatSpec {
+  const x = r ?? fallback;
+  if (typeof x === 'string') {
+    const p = (P as Record<string, MatSpec>)[x];
+    if (!p) throw new Error(`unknown material preset ${x}`);
+    return p;
+  }
+  return x;
+}
